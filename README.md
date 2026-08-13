@@ -8,7 +8,7 @@ Supports **two profiles** in one app:
 
 | Profile | Hotkey | Model | Language |
 |---------|--------|-------|----------|
-| EN      | Ctrl + Shift + Space | `small.en` | English |
+| EN      | Ctrl + Shift + Space | `medium.en` | English |
 | DE      | Ctrl + Alt + Space   | `medium`   | German   |
 
 The status indicator sits at the bottom-center of the screen and always shows

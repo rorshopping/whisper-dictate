@@ -95,7 +95,7 @@ DEFAULTS = {
         {
             "name": "EN",
             "hotkey": ["ctrl", "shift", "space"],
-            "model": "small.en",
+            "model": "medium.en",
             "language": "en",
             "hotwords_file": "hotwords-en.txt",
             "prompt_prefix": (
