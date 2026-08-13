@@ -1,0 +1,15 @@
+# Core
+faster-whisper
+sounddevice
+numpy
+
+# Tray + keyboard + clipboard
+pystray
+pynput
+pyperclip
+Pillow
+
+# Windows: CUDA math libraries (needed for GPU transcription on Windows)
+nvidia-cublas-cu12 ; sys_platform == "win32"
+nvidia-cudnn-cu12 ; sys_platform == "win32"
+nvidia-cuda-runtime-cu12 ; sys_platform == "win32"

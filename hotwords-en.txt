@@ -1,0 +1,51 @@
+# One term per line. Add any word or phrase Whisper keeps getting wrong.
+# These are fed to the model as hotwords + initial prompt, so keep this list focused.
+# Lines starting with # are ignored.
+
+API
+JSON
+YAML
+SQL
+Python
+PyTorch
+TensorFlow
+JavaScript
+TypeScript
+React
+Node.js
+Docker
+Kubernetes
+CUDA
+GPU
+CPU
+LLM
+API endpoint
+machine learning
+neural network
+transformer
+embedding
+tokenizer
+inference
+fine-tuning
+backpropagation
+gradient descent
+overfitting
+convolutional
+recurrent
+async
+asynchronous
+frontend
+backend
+database
+repository
+deployment
+middleware
+serverless
+monorepo
+camelCase
+snake_case
+kebab-case
+microservices
+dependency
+deadlock
+race condition

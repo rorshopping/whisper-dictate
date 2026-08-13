@@ -1,0 +1,50 @@
+# Ein Begriff pro Zeile. Ergänze Wörter, die Whisper falsch erkennt.
+# Diese werden als Hotwords + Initial-Prompt an das Modell übergeben.
+# Zeilen mit # werden ignoriert.
+
+API
+JSON
+SQL
+YAML
+XML
+Python
+PyTorch
+TensorFlow
+JavaScript
+TypeScript
+React
+Node.js
+Docker
+Kubernetes
+CUDA
+GPU
+maschinelles Lernen
+neuronales Netz
+Transformer
+Embeddings
+Tokenizer
+Inferenz
+Feinabstimmung
+Backpropagation
+Gradientenabstieg
+Überanpassung
+Faltungsnetz
+rekurrent
+Frontend
+Backend
+Datenbank
+Repository
+Deployment
+Middleware
+Serverless
+Microservices
+Monorepo
+asynchron
+Deadlock
+Race Condition
+Abhängigkeit
+Schlüsselwort
+Variablenname
+Camel Case
+Snake Case
+Groß- und Kleinschreibung

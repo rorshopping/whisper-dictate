@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+dictate.log
+.app.lock
+test.wav

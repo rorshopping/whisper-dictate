@@ -1,0 +1,41 @@
+{
+  "offline": true,
+  "device": "auto",
+  "compute_type": "auto",
+  "samplerate": 16000,
+  "beam_size": 2,
+  "type_newline": true,
+  "sound": true,
+  "profiles": [
+    {
+      "name": "EN",
+      "hotkey": ["ctrl", "shift", "space"],
+      "model": "small.en",
+      "language": "en",
+      "hotwords_file": "hotwords-en.txt",
+      "prompt_prefix": "Transcribe the following technical dictation. The terms below are expected and important:",
+      "labels": {
+        "listening": "Listening…",
+        "transcribing": "Transcribing…",
+        "loading": "Loading model…",
+        "typing": "Typing…",
+        "error": "Error"
+      }
+    },
+    {
+      "name": "DE",
+      "hotkey": ["ctrl", "alt", "space"],
+      "model": "medium",
+      "language": "de",
+      "hotwords_file": "hotwords-de.txt",
+      "prompt_prefix": "Transkribiere die folgende technische Diktation. Folgende Begriffe sind wichtig und werden erwartet:",
+      "labels": {
+        "listening": "Hören…",
+        "transcribing": "Transkribieren…",
+        "loading": "Lade Modell…",
+        "typing": "Tippe…",
+        "error": "Fehler"
+      }
+    }
+  ]
+}
