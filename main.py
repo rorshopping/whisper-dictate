@@ -254,7 +254,9 @@ def beep(freq, dur=90):
 
 def show_state(state, profile=None, detail=""):
     if state == "ready":
-        text = " · ".join(f"{p.name} {p.hotkey_str()}" for p in profiles)
+        text = "Ready to transcribe · " + " · ".join(
+            f"{p.name} {p.hotkey_str()}" for p in profiles
+        )
     else:
         text = f"{profile.name} {profile.label(state)}"
         if detail:
@@ -388,6 +390,7 @@ def stop_recording():
         buf = list(frames)
     log(f"[{profile.name}] Recording stopped, {len(buf)} chunks captured")
     if not buf:
+        show_state("ready")
         return
     threading.Thread(target=transcribe_thread, args=(profile, buf), daemon=True).start()
 
@@ -412,6 +415,7 @@ def transcribe_thread(profile, buf):
         audio = np.concatenate(buf) if buf else np.zeros(0, dtype=np.float32)
         audio = np.ascontiguousarray(audio, dtype=np.float32)
         if audio.size == 0:
+            show_state("ready")
             return
         m = get_model(profile)
         done = threading.Event()
@@ -439,12 +443,10 @@ def transcribe_thread(profile, buf):
             f"[{profile.name}] Transcribed {audio.size/cfg['samplerate']:.1f}s audio in {time.time()-t0:.1f}s"
         )
         if not text:
-            show_state("ready")
             return
         show_state("typing", profile)
         type_text(text)
         beep(1320)
-        show_state("ready")
     except Exception as e:
         done.set()
         show_state("error", profile)
@@ -452,6 +454,7 @@ def transcribe_thread(profile, buf):
         import traceback
 
         traceback.print_exc()
+    finally:
         show_state("ready")
 
 
