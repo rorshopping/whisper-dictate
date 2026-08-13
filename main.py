@@ -32,8 +32,20 @@ def _read_cfg():
     return cfg
 
 
+def _models_cached(cfg):
+    cache = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+    names = {
+        "models--Systran--faster-whisper-" + p["model"]
+        for p in cfg.get("profiles") or []
+        if p.get("model")
+    }
+    if not names:
+        return False
+    return all(os.path.isdir(os.path.join(cache, n)) for n in names)
+
+
 _cfg_early = _read_cfg()
-if _cfg_early.get("offline", True):
+if _cfg_early.get("offline", True) and _models_cached(_cfg_early):
     os.environ["HF_HUB_OFFLINE"] = "1"
 
 

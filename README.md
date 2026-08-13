@@ -36,8 +36,8 @@ py -3.12 -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 ```
 
-Run once to download the models (offline mode is enabled after the first
-download, so do it while online):
+Run once to download the models (offline mode only kicks in once the models
+are cached locally, so first run downloads automatically):
 
 ```powershell
 .venv\Scripts\python main.py
@@ -78,5 +78,6 @@ labels). Hotwords are one term per line in the per-language text files.
 - Log file: `dictate.log` next to `main.py`.
 - CUDA: `device`/`compute_type` `"auto"` picks CUDA+float16 when available,
   CPU+int8 otherwise.
-- Offline: after models are downloaded once, set `"offline": true` to skip the
-  network check (already the default).
+- Offline: once models are downloaded, `"offline": true` (the default) skips
+  the network check. Offline is only enforced when the models are already in
+  the local cache, so first-time setup still downloads.
