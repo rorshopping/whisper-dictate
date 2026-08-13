@@ -49,3 +49,4 @@ microservices
 dependency
 deadlock
 race condition
+SNiPs
