@@ -91,11 +91,12 @@ DEFAULTS = {
     "beam_size": 2,
     "type_newline": True,
     "sound": True,
+    "paste_last_hotkey": ["ctrl", "shift", "f12"],
     "profiles": [
         {
             "name": "EN",
             "hotkey": ["ctrl", "shift", "space"],
-            "model": "medium.en",
+            "model": "small.en",
             "language": "en",
             "hotwords_file": "hotwords-en.txt",
             "prompt_prefix": (
@@ -216,6 +217,10 @@ recording = {"active": False, "profile": None}
 frames = []
 frames_lock = threading.Lock()
 pressed = set()
+last_text = None
+last_profile = None
+paste_last_fired = False
+PASTE_LAST_HOTKEY = list(cfg.get("paste_last_hotkey") or [])
 
 STATUS_QUEUE = queue.Queue()
 OVERLAY_ROOT = None
@@ -264,6 +269,27 @@ def show_state(state, profile=None, detail=""):
     STATUS_QUEUE.put(("show", STATE_COLORS[state], text))
 
 
+def _foreground_hwnd():
+    """Return the HWND of the currently focused window (Windows only)."""
+    if sys.platform != "win32":
+        return None
+    try:
+        return ctypes.windll.user32.GetForegroundWindow()
+    except Exception:
+        return None
+
+
+def _set_foreground(hwnd):
+    """Bring the given HWND to the foreground (Windows only)."""
+    if sys.platform != "win32" or not hwnd:
+        return
+    try:
+        ctypes.windll.user32.SetForegroundWindow(hwnd)
+        time.sleep(0.03)
+    except Exception:
+        pass
+
+
 class StatusOverlay:
     def __init__(self):
         self.root = tk.Tk()
@@ -276,7 +302,13 @@ class StatusOverlay:
                 self.root.attributes("-toolwindow", True)
             except Exception:
                 pass
-        self.frame = tk.Frame(self.root, bg="#16161d")
+        self.frame = tk.Frame(
+            self.root,
+            bg="#16161d",
+            highlightthickness=1,
+            highlightbackground="#33333f",
+            highlightcolor="#33333f",
+        )
         self.dot = tk.Label(
             self.frame, text="●", fg="#6b6b76", bg="#16161d", font=("Segoe UI", 10)
         )
@@ -288,7 +320,61 @@ class StatusOverlay:
         self.frame.pack()
         if sys.platform == "win32":
             self._click_through()
+        self._make_paste_button()
+        self.target_hwnd = None
         self.root.after(120, self._poll)
+
+    @staticmethod
+    def _paste_button_label():
+        if PASTE_LAST_HOTKEY:
+            return "Paste last  (" + " + ".join(_display_key(k) for k in PASTE_LAST_HOTKEY) + ")"
+        return "Paste last"
+
+    def _make_paste_button(self):
+        self.pb_win = tk.Toplevel(self.root)
+        self.pb_win.withdraw()
+        self.pb_win.overrideredirect(True)
+        self.pb_win.attributes("-topmost", True)
+        if sys.platform == "win32":
+            try:
+                self.pb_win.attributes("-toolwindow", True)
+            except Exception:
+                pass
+        self.pb_btn = tk.Button(
+            self.pb_win,
+            text=self._paste_button_label(),
+            command=self._on_paste_click,
+            bg="#3d3d54",
+            fg="#ffffff",
+            activebackground="#4c4c6a",
+            activeforeground="#ffffff",
+            relief="flat",
+            bd=0,
+            highlightthickness=1,
+            highlightbackground="#55556e",
+            highlightcolor="#55556e",
+            padx=10,
+            pady=2,
+            cursor="hand2",
+            font=("Segoe UI", 9),
+        )
+        self.pb_btn.pack()
+
+    def _refresh_paste_button(self, pill_x, pill_y, pill_w, pill_h):
+        if last_text is None:
+            self.pb_win.withdraw()
+            return
+        sw = self.root.winfo_screenwidth()
+        self.pb_win.update_idletasks()
+        bw = self.pb_win.winfo_reqwidth()
+        bh = self.pb_win.winfo_reqheight()
+        x = pill_x + pill_w + 8
+        if x + bw > sw - 4:
+            x = max(4, pill_x - bw - 8)
+        y = pill_y
+        self.pb_win.geometry(f"{bw}x{bh}+{x}+{y}")
+        self.pb_win.deiconify()
+        self.pb_win.lift()
 
     def _click_through(self):
         try:
@@ -310,7 +396,38 @@ class StatusOverlay:
                     self.root.withdraw()
         except queue.Empty:
             pass
+        self._track_target()
+        self._refresh_paste_button_pos()
         self.root.after(120, self._poll)
+
+    def _track_target(self):
+        """Remember the last focused window that isn't one of our overlays."""
+        cur = _foreground_hwnd()
+        if not cur:
+            return
+        try:
+            own = {self.root.winfo_id(), self.pb_win.winfo_id()}
+        except Exception:
+            own = set()
+        if cur not in own:
+            self.target_hwnd = cur
+
+    def _on_paste_click(self):
+        # The button steals focus when clicked, so re-focus the target field
+        # before injecting the paste.
+        _set_foreground(self.target_hwnd)
+        paste_last()
+
+    def _refresh_paste_button_pos(self):
+        try:
+            self.root.update_idletasks()
+            x = self.root.winfo_x()
+            y = self.root.winfo_y()
+            w = self.root.winfo_reqwidth()
+            h = self.root.winfo_reqheight()
+            self._refresh_paste_button(x, y, w, h)
+        except Exception:
+            pass
 
     def _show(self, color, text):
         sw = self.root.winfo_screenwidth()
@@ -320,9 +437,12 @@ class StatusOverlay:
         self.root.update_idletasks()
         w = self.root.winfo_reqwidth()
         h = self.root.winfo_reqheight()
-        self.root.geometry(f"{w}x{h}+{(sw - w) // 2}+{sh - h - 64}")
+        px = (sw - w) // 2
+        py = sh - h - 64
+        self.root.geometry(f"{w}x{h}+{px}+{py}")
         self.root.deiconify()
         self.root.lift()
+        self._refresh_paste_button(px, py, w, h)
 
 
 def key_name(key):
@@ -345,6 +465,7 @@ def key_name(key):
 
 
 def on_press(key):
+    global paste_last_fired
     n = key_name(key)
     if n is None:
         return
@@ -355,15 +476,25 @@ def on_press(key):
         if set(p.hotkey) <= pressed:
             start_recording(p)
             return
+    if (
+        PASTE_LAST_HOTKEY
+        and not paste_last_fired
+        and set(PASTE_LAST_HOTKEY) <= pressed
+    ):
+        paste_last_fired = True
+        paste_last()
 
 
 def on_release(key):
+    global paste_last_fired
     n = key_name(key)
     if n is None:
         return
     pressed.discard(n)
     if recording["active"] and not (set(recording["profile"].hotkey) <= pressed):
         stop_recording()
+    if not set(PASTE_LAST_HOTKEY) <= pressed:
+        paste_last_fired = False
 
 
 def audio_callback(indata, frames_cnt, time_info, status):
@@ -411,6 +542,7 @@ def get_model(profile):
 
 
 def transcribe_thread(profile, buf):
+    global last_text, last_profile
     try:
         audio = np.concatenate(buf) if buf else np.zeros(0, dtype=np.float32)
         audio = np.ascontiguousarray(audio, dtype=np.float32)
@@ -444,6 +576,8 @@ def transcribe_thread(profile, buf):
         )
         if not text:
             return
+        last_text = text
+        last_profile = profile
         show_state("typing", profile)
         type_text(text)
         beep(1320)
@@ -467,6 +601,20 @@ def type_text(text):
     ctrl.press(pkb.Key.ctrl)
     ctrl.tap("v")
     ctrl.release(pkb.Key.ctrl)
+
+
+def paste_last(icon=None, item=None):
+    """Re-insert the most recent transcription into the currently focused field."""
+    if not last_text:
+        log("No transcription to re-paste yet")
+        if icon:
+            icon.notify("Nothing to re-paste yet", APP_NAME)
+        return
+    profile = last_profile if last_profile is not None else profiles[0]
+    show_state("typing", profile)
+    type_text(last_text)
+    beep(1320)
+    log("Re-pasted last transcription")
 
 
 def reload_hotwords(icon=None):
@@ -522,6 +670,7 @@ def main():
             None,
             enabled=False,
         ),
+        pystray.MenuItem("Paste last transcription", paste_last),
         pystray.MenuItem("Reload hotwords", reload_hotwords),
         pystray.MenuItem("Quit", quit_app),
     )

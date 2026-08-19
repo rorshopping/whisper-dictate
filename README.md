@@ -8,7 +8,7 @@ Supports **two profiles** in one app:
 
 | Profile | Hotkey | Model | Language |
 |---------|--------|-------|----------|
-| EN      | Ctrl + Shift + Space | `medium.en` | English |
+| EN      | Ctrl + Shift + Space | `small.en` | English |
 | DE      | Ctrl + Alt + Space   | `medium`   | German   |
 
 The status indicator sits at the bottom-center of the screen and always shows
@@ -19,6 +19,10 @@ the current state and both hotkeys, so you never forget them.
 - 100% local / offline — no audio ever leaves your machine
 - NVIDIA CUDA acceleration (falls back to CPU automatically)
 - Hotwords per language: customize `hotwords-en.txt` / `hotwords-de.txt`
+- **Paste last transcription**: if you forget to click into a text field before
+  dictating, select the field afterwards and press `Ctrl+Shift+F12` (or use the
+  tray menu "Paste last transcription") to insert the most recent recording
+  there.
 - Subtle always-on status pill (listening / transcribing / typing / ready)
 - Auto-starts with Windows (Startup shortcut)
 - System tray icon with menu (reload hotwords, quit)
@@ -72,6 +76,10 @@ macOS notes:
 `config.json` is created/merged over the built-in defaults. The `profiles`
 array defines each profile (hotkey, model, language, hotwords file, status
 labels). Hotwords are one term per line in the per-language text files.
+
+- `paste_last_hotkey` — global hotkey to re-insert the most recent
+  transcription into the currently focused field. Default `["ctrl", "shift",
+  "f12"]`; set to `[]` to disable (the tray menu item still works).
 
 ## Troubleshooting
 
