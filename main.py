@@ -182,7 +182,7 @@ class Profile:
         self.model_obj = None
 
     def hotkey_str(self):
-        return " + ".join(_display_key(k) for k in self.hotkey)
+        return "+".join(_display_key(k) for k in self.hotkey)
 
     def label(self, key):
         return self.labels.get(key, key.title())
@@ -226,7 +226,7 @@ STATUS_QUEUE = queue.Queue()
 OVERLAY_ROOT = None
 
 STATE_COLORS = {
-    "ready": "#6b6b76",
+    "ready": "#aeb4c9",
     "listening": "#ff4d4d",
     "transcribing": "#ffb340",
     "loading": "#7aa2ff",
@@ -259,7 +259,7 @@ def beep(freq, dur=90):
 
 def show_state(state, profile=None, detail=""):
     if state == "ready":
-        text = "Ready to transcribe · " + " · ".join(
+        text = "Ready to transcribe    " + "    │    ".join(
             f"{p.name} {p.hotkey_str()}" for p in profiles
         )
     else:
@@ -296,7 +296,6 @@ class StatusOverlay:
         self.root.withdraw()
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
-        self.root.attributes("-alpha", 0.55)
         if sys.platform == "win32":
             try:
                 self.root.attributes("-toolwindow", True)
@@ -304,16 +303,16 @@ class StatusOverlay:
                 pass
         self.frame = tk.Frame(
             self.root,
-            bg="#16161d",
+            bg="#3d3d54",
             highlightthickness=1,
-            highlightbackground="#33333f",
-            highlightcolor="#33333f",
+            highlightbackground="#55556e",
+            highlightcolor="#55556e",
         )
         self.dot = tk.Label(
-            self.frame, text="●", fg="#6b6b76", bg="#16161d", font=("Segoe UI", 10)
+            self.frame, text="●", fg="#aeb4c9", bg="#3d3d54", font=("Segoe UI", 10)
         )
         self.txt = tk.Label(
-            self.frame, text="", fg="#dddddd", bg="#16161d", font=("Segoe UI", 9)
+            self.frame, text="", fg="#ffffff", bg="#3d3d54", font=("Segoe UI", 9)
         )
         self.dot.pack(side="left", padx=(9, 4), pady=3)
         self.txt.pack(side="left", padx=(0, 9), pady=3)
@@ -383,6 +382,11 @@ class StatusOverlay:
             styles = ctypes.windll.user32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
             styles |= 0x20 | 0x80000 | 0x08000000 | 0x80
             ctypes.windll.user32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, styles)
+            # A layered window is never painted until SetLayeredWindowAttributes
+            # is called on it at least once. Do it explicitly at full opacity,
+            # independent of any Tk -alpha setting.
+            LWA_ALPHA = 0x2
+            ctypes.windll.user32.SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)
         except Exception:
             pass
 
