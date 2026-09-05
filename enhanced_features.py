@@ -1,10 +1,12 @@
 """Optional OpenWhisper-inspired features for Whisper Dictate.
 
-The existing main.py remains the core app. This module adds two high-value
-features without replacing that small architecture:
+The existing main.py remains the core app. This module adds high-value features
+without replacing that small architecture:
 
 1. Live streaming preview using a dedicated tiny Whisper model.
 2. Local transcription history with a global history hotkey.
+3. Safe model coordination so preview and final transcription never compete for
+   the same faster-whisper model instance.
 
 Run through launcher.py so the existing implementation stays easy to audit.
 """
@@ -127,23 +129,23 @@ def _get_stream_model(profile):
     global _STREAM_MODEL, _STREAM_MODEL_NAME
     model_name = app.cfg.get("streaming_model", "tiny")
     if not model_name or model_name == profile.model:
-        return app.get_model(profile)
+        return app.get_model(profile), False
     with _STREAM_LOCK:
         if _STREAM_MODEL is None or _STREAM_MODEL_NAME != model_name:
             from faster_whisper import WhisperModel
             if app.cfg.get("offline", True) and not _cache_has_model(model_name):
                 app.log(
                     f"[stream] Preview model '{model_name}' is not cached; "
-                    f"falling back to {profile.model} for live preview"
+                    "live preview disabled for this recording"
                 )
-                return app.get_model(profile)
+                return None, False
             app.log(f"[stream] Loading preview model '{model_name}'...")
             _STREAM_MODEL = WhisperModel(
                 model_name, device=app.DEVICE, compute_type=app.COMPUTE
             )
             _STREAM_MODEL_NAME = model_name
             app.log(f"[stream] Preview model '{model_name}' ready")
-        return _STREAM_MODEL
+        return _STREAM_MODEL, True
 
 
 def _snapshot_audio():
@@ -173,7 +175,9 @@ def _preview_text(model, audio, profile):
 def _stream_worker(profile):
     global _STREAM_THREAD
     try:
-        model = _get_stream_model(profile)
+        model, dedicated = _get_stream_model(profile)
+        if model is None:
+            return
     except Exception as exc:
         app.log(f"[stream] Preview unavailable: {exc}")
         return
@@ -239,27 +243,34 @@ def transcribe_thread(profile, buf):
         if audio.size == 0:
             app.show_state("ready")
             return
-        model = app.get_model(profile)
-        t0 = time.time()
-        app.show_state("transcribing", profile)
 
-        def watchdog():
-            while not done.wait(5):
-                app.log(
-                    f"[{profile.name}] STALL WATCH: transcribing for "
-                    f"{time.time() - t0:.0f}s so far"
-                )
+        # Preview and final transcription may share CUDA memory and faster-whisper
+        # model state. Serialize final inference with preview inference to avoid
+        # intermittent GPU/CPU contention, especially when streaming falls back
+        # to the profile model.
+        with _STREAM_LOCK:
+            model = app.get_model(profile)
+            t0 = time.time()
+            app.show_state("transcribing", profile)
 
-        threading.Thread(target=watchdog, daemon=True).start()
-        segments, _info = model.transcribe(
-            audio,
-            language=profile.language,
-            beam_size=app.cfg.get("beam_size", 2),
-            initial_prompt=profile.initial_prompt,
-            hotwords=profile.hotwords,
-            vad_filter=True,
-        )
-        text = " ".join(seg.text.strip() for seg in segments).strip()
+            def watchdog():
+                while not done.wait(5):
+                    app.log(
+                        f"[{profile.name}] STALL WATCH: transcribing for "
+                        f"{time.time() - t0:.0f}s so far"
+                    )
+
+            threading.Thread(target=watchdog, daemon=True).start()
+            segments, _info = model.transcribe(
+                audio,
+                language=profile.language,
+                beam_size=app.cfg.get("beam_size", 2),
+                initial_prompt=profile.initial_prompt,
+                hotwords=profile.hotwords,
+                vad_filter=True,
+            )
+            text = " ".join(seg.text.strip() for seg in segments).strip()
+
         done.set()
         duration = audio.size / app.cfg["samplerate"]
         app.log(
@@ -281,6 +292,7 @@ def transcribe_thread(profile, buf):
         import traceback
         traceback.print_exc()
     finally:
+        done.set()
         app.show_state("ready")
 
 
