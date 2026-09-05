@@ -6,6 +6,12 @@
   "beam_size": 2,
   "type_newline": true,
   "sound": true,
+  "history_enabled": true,
+  "history_hotkey": ["ctrl", "shift", "f11"],
+  "streaming_enabled": true,
+  "streaming_model": "tiny",
+  "streaming_interval": 1.25,
+  "paste_last_hotkey": ["ctrl", "shift", "f12"],
   "profiles": [
     {
       "name": "EN",
