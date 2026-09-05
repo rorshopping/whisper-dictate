@@ -80,6 +80,12 @@ labels). Hotwords are one term per line in the per-language text files.
 - `paste_last_hotkey` — global hotkey to re-insert the most recent
   transcription into the currently focused field. Default `["ctrl", "shift",
   "f12"]`; set to `[]` to disable (the tray menu item still works).
+- `paste_button_linger` — seconds the on-screen "Paste last" button stays up
+  after a transcription before it fades out (hovering it pauses the fade; the
+  hotkey works regardless). Default `10`; the status pill itself is fully
+  click-through and translucent, so it never blocks what's behind it.
+- `pill_alpha` — status pill opacity, 0 (invisible) to 255 (solid).
+  Default `150`.
 
 ## Troubleshooting
 

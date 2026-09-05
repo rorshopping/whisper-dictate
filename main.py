@@ -93,6 +93,7 @@ DEFAULTS = {
     "type_newline": True,
     "sound": True,
     "paste_last_hotkey": ["ctrl", "shift", "f12"],
+    "paste_button_linger": 10,
     "profiles": [
         {
             "name": "EN",
@@ -222,6 +223,12 @@ last_text = None
 last_profile = None
 paste_last_fired = False
 PASTE_LAST_HOTKEY = list(cfg.get("paste_last_hotkey") or [])
+# Seconds the paste button stays up after a fresh transcription before it
+# fades out (the Ctrl+Shift+F12 hotkey keeps working either way).
+PASTE_BUTTON_LINGER = float(cfg.get("paste_button_linger", 10))
+# 0-255 pill opacity; it never intercepts clicks either way.
+PILL_ALPHA = int(cfg.get("pill_alpha", 150))
+
 STATUS_QUEUE = queue.Queue()
 OVERLAY_ROOT = None
 
@@ -267,6 +274,24 @@ def show_state(state, profile=None, detail=""):
         if detail:
             text += f" {detail}"
     STATUS_QUEUE.put(("show", STATE_COLORS[state], text))
+
+
+class _POINT(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+
+def _top_hwnd(widget):
+    """Return the real top-level HWND of a Tk widget (Windows only).
+
+    winfo_id() returns the inner TkChild window; GetForegroundWindow() and
+    mouse hit-tests see its TkTopLevel wrapper instead.
+    """
+    if sys.platform != "win32" or widget is None:
+        return None
+    try:
+        return ctypes.windll.user32.GetAncestor(widget.winfo_id(), 2)  # GA_ROOT
+    except Exception:
+        return None
 
 
 def _foreground_hwnd():
@@ -321,6 +346,9 @@ class StatusOverlay:
             self._click_through()
         self._make_paste_button()
         self.target_hwnd = None
+        self.pb_until = 0.0  # epoch seconds the paste button stays visible
+        self.pb_alpha = 1.0
+        self.pb_alpha_shown = None
         self.root.after(120, self._poll)
 
     @staticmethod
@@ -359,10 +387,50 @@ class StatusOverlay:
         )
         self.pb_btn.pack()
 
+    def _on_new_text(self):
+        """A fresh transcription arrived: keep the paste button up for a while."""
+        self.pb_until = time.time() + PASTE_BUTTON_LINGER
+        self.pb_alpha = 1.0
+
+    def _cursor_on_paste_button(self):
+        """True if the mouse cursor is over the paste button (Windows only)."""
+        if sys.platform != "win32":
+            return False
+        try:
+            pt = _POINT()
+            if not ctypes.windll.user32.GetCursorPos(ctypes.byref(pt)):
+                return False
+            bx = self.pb_win.winfo_rootx()
+            by = self.pb_win.winfo_rooty()
+            bw = self.pb_win.winfo_width()
+            bh = self.pb_win.winfo_height()
+        except Exception:
+            return False
+        pad = 6
+        return bx - pad <= pt.x <= bx + bw + pad and by - pad <= pt.y <= by + bh + pad
+
     def _refresh_paste_button(self, pill_x, pill_y, pill_w, pill_h):
         if last_text is None:
             self.pb_win.withdraw()
             return
+        now = time.time()
+        try:
+            shown = self.pb_win.state() != "withdrawn"
+        except Exception:
+            shown = False
+        if shown and self._cursor_on_paste_button():
+            # Don't fade out while the user is aiming for the button.
+            self.pb_until = max(self.pb_until, now + 1.0)
+        if now < self.pb_until:
+            self.pb_alpha = 1.0
+        else:
+            self.pb_alpha = max(0.0, self.pb_alpha - 0.25)
+            if self.pb_alpha <= 0.0:
+                self.pb_win.withdraw()
+                return
+        if self.pb_alpha != self.pb_alpha_shown:
+            self.pb_win.attributes("-alpha", self.pb_alpha)
+            self.pb_alpha_shown = self.pb_alpha
         sw = self.root.winfo_screenwidth()
         self.pb_win.update_idletasks()
         bw = self.pb_win.winfo_reqwidth()
@@ -376,14 +444,23 @@ class StatusOverlay:
         self.pb_win.lift()
 
     def _click_through(self):
+        """Make the pill window immune to mouse clicks and translucent.
+
+        The styles must go on the top-level wrapper window: winfo_id() returns
+        the inner TkChild, which never receives the hit-test, so styling it
+        silently does nothing and the pill keeps swallowing clicks.
+        """
         try:
+            user32 = ctypes.windll.user32
             GWL_EXSTYLE = -20
-            hwnd = self.root.winfo_id()
-            styles = ctypes.windll.user32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
+            hwnd = _top_hwnd(self.root)
+            styles = user32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
             styles |= 0x20 | 0x80000 | 0x08000000 | 0x80
-            ctypes.windll.user32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, styles)
+            user32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, styles)
+            # A layered window is never painted until SetLayeredWindowAttributes
+            # is called on it at least once.
             LWA_ALPHA = 0x2
-            ctypes.windll.user32.SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)
+            user32.SetLayeredWindowAttributes(hwnd, 0, PILL_ALPHA, LWA_ALPHA)
         except Exception:
             pass
 
@@ -393,6 +470,8 @@ class StatusOverlay:
                 item = STATUS_QUEUE.get_nowait()
                 if item[0] == "show":
                     self._show(*item[1:])
+                elif item[0] == "new_text":
+                    self._on_new_text()
                 else:
                     self.root.withdraw()
         except queue.Empty:
@@ -407,7 +486,7 @@ class StatusOverlay:
         if not cur:
             return
         try:
-            own = {self.root.winfo_id(), self.pb_win.winfo_id()}
+            own = {_top_hwnd(self.root), _top_hwnd(self.pb_win)}
         except Exception:
             own = set()
         if cur not in own:
@@ -441,6 +520,9 @@ class StatusOverlay:
         self.root.geometry(f"{w}x{h}+{px}+{py}")
         self.root.deiconify()
         self.root.lift()
+        # Re-assert click-through after mapping: the wrapper window the styles
+        # need only exists (or sticks) once the window has been shown.
+        self._click_through()
         self._refresh_paste_button(px, py, w, h)
 
 
@@ -577,6 +659,7 @@ def transcribe_thread(profile, buf):
             return
         last_text = text
         last_profile = profile
+        STATUS_QUEUE.put(("new_text",))
         show_state("typing", profile)
         type_text(text)
         beep(1320)
@@ -694,7 +777,19 @@ def main():
         else:
             raise
 
-    threading.Thread(target=get_model, args=(profiles[0],), daemon=True).start()
+    def preload():
+        # Preload the default model; without the reset the pill would stay on
+        # "Loading model…" until the first transcription (the initial
+        # show_state("ready") races with the loading state).
+        try:
+            get_model(profiles[0])
+        except Exception as e:
+            log(f"Preload of default model failed: {e}")
+        finally:
+            if not recording["active"]:
+                show_state("ready")
+
+    threading.Thread(target=preload, daemon=True).start()
 
     listener = pkb.Listener(on_press=on_press, on_release=on_release)
     listener.daemon = True
