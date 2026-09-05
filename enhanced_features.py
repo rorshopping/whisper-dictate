@@ -20,13 +20,16 @@ import numpy as np
 import main as app
 
 HISTORY_FILE = os.path.join(app.BASE_DIR, "transcription-history.jsonl")
-HISTORY_HOTKEY = {"ctrl", "shift", "f11"}
 _HISTORY_LOCK = threading.Lock()
 _STREAM_LOCK = threading.Lock()
 _STREAM_STOP = threading.Event()
 _STREAM_THREAD = None
 _STREAM_MODEL = None
 _STREAM_MODEL_NAME = None
+
+
+def _history_hotkey():
+    return set(app.cfg.get("history_hotkey", ["ctrl", "shift", "f11"]))
 
 
 def _cache_has_model(model_name):
@@ -77,7 +80,7 @@ def open_history():
 
 
 def _history_key_pressed():
-    return bool(app.pressed & HISTORY_HOTKEY)
+    return bool(app.pressed & _history_hotkey())
 
 
 def on_press(key):
@@ -127,12 +130,13 @@ def _get_stream_model(profile):
         return app.get_model(profile)
     with _STREAM_LOCK:
         if _STREAM_MODEL is None or _STREAM_MODEL_NAME != model_name:
-            if app.cfg.get("offline", True) and not _cache_has_model(model_name):
-                raise RuntimeError(
-                    f"Streaming model '{model_name}' is not cached; "
-                    "run once with offline=false or remove offline mode to download it"
-                )
             from faster_whisper import WhisperModel
+            if app.cfg.get("offline", True) and not _cache_has_model(model_name):
+                app.log(
+                    f"[stream] Preview model '{model_name}' is not cached; "
+                    f"falling back to {profile.model} for live preview"
+                )
+                return app.get_model(profile)
             app.log(f"[stream] Loading preview model '{model_name}'...")
             _STREAM_MODEL = WhisperModel(
                 model_name, device=app.DEVICE, compute_type=app.COMPUTE
@@ -228,7 +232,6 @@ def stop_recording():
 
 
 def transcribe_thread(profile, buf):
-    global _STREAM_MODEL
     done = threading.Event()
     try:
         audio = np.concatenate(buf) if buf else np.zeros(0, dtype=np.float32)
@@ -278,9 +281,7 @@ def transcribe_thread(profile, buf):
         import traceback
         traceback.print_exc()
     finally:
-        show = getattr(app, "show_state", None)
-        if show:
-            show("ready")
+        app.show_state("ready")
 
 
 def install():
@@ -290,7 +291,3 @@ def install():
     app.transcribe_thread = transcribe_thread
     app.on_press = on_press
     app.on_release = on_release
-    app.DEFAULTS.setdefault("history_enabled", True)
-    app.DEFAULTS.setdefault("streaming_enabled", True)
-    app.DEFAULTS.setdefault("streaming_model", "tiny")
-    app.DEFAULTS.setdefault("streaming_interval", 1.25)
