@@ -2,6 +2,7 @@
   "offline": true,
   "device": "auto",
   "compute_type": "auto",
+  "audio_device": null,
   "samplerate": 16000,
   "beam_size": 2,
   "type_newline": true,
