@@ -66,7 +66,7 @@ if sys.platform == "win32":
     MUTEX_NAME = APP_NAME.replace(" ", "")
     _mutex = ctypes.windll.kernel32.CreateMutexW(None, False, MUTEX_NAME)
     if ctypes.windll.kernel32.GetLastError() in (183, 5):
-        print("Another Whisper Dictate instance is already running — exiting.")
+        print("Another Whisper Dictate instance is already running - exiting.")
         sys.exit(0)
 else:
     _LOCK_FILE = os.path.join(BASE_DIR, ".app.lock")
@@ -74,7 +74,7 @@ else:
         _lf = os.open(_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         os.write(_lf, str(os.getpid()).encode())
     except FileExistsError:
-        print("Another Whisper Dictate instance is already running — exiting.")
+        print("Another Whisper Dictate instance is already running - exiting.")
         sys.exit(0)
 
 logging.basicConfig(
@@ -87,6 +87,7 @@ DEFAULTS = {
     "offline": True,
     "device": "auto",
     "compute_type": "auto",
+    "audio_device": None,
     "samplerate": 16000,
     "beam_size": 2,
     "type_newline": True,
@@ -221,7 +222,6 @@ last_text = None
 last_profile = None
 paste_last_fired = False
 PASTE_LAST_HOTKEY = list(cfg.get("paste_last_hotkey") or [])
-
 STATUS_QUEUE = queue.Queue()
 OVERLAY_ROOT = None
 
@@ -382,9 +382,6 @@ class StatusOverlay:
             styles = ctypes.windll.user32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
             styles |= 0x20 | 0x80000 | 0x08000000 | 0x80
             ctypes.windll.user32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, styles)
-            # A layered window is never painted until SetLayeredWindowAttributes
-            # is called on it at least once. Do it explicitly at full opacity,
-            # independent of any Tk -alpha setting.
             LWA_ALPHA = 0x2
             ctypes.windll.user32.SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA)
         except Exception:
@@ -417,8 +414,6 @@ class StatusOverlay:
             self.target_hwnd = cur
 
     def _on_paste_click(self):
-        # The button steals focus when clicked, so re-focus the target field
-        # before injecting the paste.
         _set_foreground(self.target_hwnd)
         paste_last()
 
@@ -648,19 +643,56 @@ def quit_app(icon, item):
             pass
 
 
+def _open_audio_settings(icon=None, item=None):
+    """Show available microphone inputs and the configured device."""
+    try:
+        devices = sd.query_devices()
+        inputs = [
+            f"{i}: {d['name']}"
+            for i, d in enumerate(devices)
+            if d.get("max_input_channels", 0) > 0
+        ]
+        configured = cfg.get("audio_device")
+        selected = "default" if configured in (None, "") else str(configured)
+        message = f"Configured input: {selected}\n\n" + "\n".join(inputs)
+        log("Available input devices: " + " | ".join(inputs))
+        if icon:
+            icon.notify(f"Input device: {selected}. See dictate.log for available devices.", APP_NAME)
+        return message
+    except Exception as exc:
+        log(f"Could not enumerate audio devices: {exc}")
+        return ""
+
+
 def main():
-    log(f"{APP_NAME} — device={DEVICE} compute={COMPUTE}")
+    log(f"{APP_NAME} - device={DEVICE} compute={COMPUTE}")
     for p in profiles:
         log(f"[{p.name}] {p.hotkey_str()} -> model {p.model}, language {p.language}")
+    _open_audio_settings()
     log("Right-click tray icon for menu. Quit to exit.")
 
-    stream = sd.InputStream(
-        samplerate=cfg["samplerate"],
-        channels=1,
-        dtype="float32",
-        callback=audio_callback,
-    )
-    stream.start()
+    input_device = cfg.get("audio_device")
+    stream_kwargs = {
+        "samplerate": cfg["samplerate"],
+        "channels": 1,
+        "dtype": "float32",
+        "callback": audio_callback,
+    }
+    if input_device not in (None, ""):
+        stream_kwargs["device"] = input_device
+        log(f"Using configured microphone device: {input_device}")
+
+    try:
+        stream = sd.InputStream(**stream_kwargs)
+        stream.start()
+    except Exception as exc:
+        if input_device not in (None, ""):
+            log(f"Configured audio device failed ({exc}); retrying with system default")
+            stream_kwargs.pop("device", None)
+            stream = sd.InputStream(**stream_kwargs)
+            stream.start()
+        else:
+            raise
 
     threading.Thread(target=get_model, args=(profiles[0],), daemon=True).start()
 
@@ -675,6 +707,7 @@ def main():
             enabled=False,
         ),
         pystray.MenuItem("Paste last transcription", paste_last),
+        pystray.MenuItem("Show microphone devices", _open_audio_settings),
         pystray.MenuItem("Reload hotwords", reload_hotwords),
         pystray.MenuItem("Quit", quit_app),
     )
