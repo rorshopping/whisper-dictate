@@ -83,8 +83,18 @@ macOS notes:
 
 `config.json` is created/merged over the built-in defaults. The `profiles`
 array defines each profile (hotkey, model, language, hotwords file, status
-labels). Hotwords are one term per line in the per-language text files.
+labels). Hotwords are one term per line in the per-language text files and are
+passed to Whisper as `hotwords` (vocabulary hints). No `initial_prompt` is
+sent: Whisper's prompt slot means "already transcribed text", not
+instructions, and instruction-style prompts made the model echo prompt words
+instead of transcribing.
 
+- `beam_size` — beam search width for the final transcription. Default `5`.
+- `streaming_model` — preview model for the live pill text while recording,
+  global default `tiny`. A profile can override it via `"streaming_model"` in
+  the profile (the DE profile uses `large-v3-turbo`: tiny/base are far too
+  weak for German). Setting it to the profile's own `model` reuses that
+  instance instead of loading a second one.
 - `paste_last_hotkey` — global hotkey to re-insert the most recent
   transcription into the currently focused field. Default `["ctrl", "shift",
   "f12"]`; set to `[]` to disable (the tray menu item still works).
@@ -99,6 +109,16 @@ labels). Hotwords are one term per line in the per-language text files.
   later, the next dictation reloads the model from the local cache). Default
   `10`; set to `0` to keep models loaded forever. The tray menu also has an
   "Unload models now" item.
+
+### German models
+
+The DE profile transcribes with `medium` (best punctuation/accuracy/speed
+balance on an 8 GB GPU in benchmarks) and previews live with
+`large-v3-turbo` (near-perfect German, ~3x faster than medium). To try a
+different model, set `"model"` in the DE profile: `large-v3` scores similar
+to `medium` but decodes ~2x slower; `large-v3-turbo` decodes fastest but can
+drop sentence periods when given long hotword lists. The first run downloads
+the model automatically (~1.6 GB for turbo).
 
 ## Troubleshooting
 

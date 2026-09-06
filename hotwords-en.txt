@@ -1,5 +1,5 @@
 # One term per line. Add any word or phrase Whisper keeps getting wrong.
-# These are fed to the model as hotwords + initial prompt, so keep this list focused.
+# These are fed to the model as hotwords (vocabulary hints), so keep this list focused.
 # Lines starting with # are ignored.
 
 API

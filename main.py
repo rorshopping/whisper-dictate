@@ -1,4 +1,5 @@
 import ctypes
+import glob
 import json
 import logging
 import os
@@ -56,14 +57,17 @@ def _read_cfg():
 
 def _models_cached(cfg):
     cache = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
-    names = {
-        "models--Systran--faster-whisper-" + p["model"]
-        for p in cfg.get("profiles") or []
-        if p.get("model")
-    }
-    if not names:
-        return False
-    return all(os.path.isdir(os.path.join(cache, n)) for n in names)
+    # The HF cache dir is "models--<org>--faster-whisper-<name>" and the org
+    # differs per model (Systran for most, mobiuslabsgmbh for large-v3-turbo),
+    # so match on the repo basename only.
+    def _has(name):
+        if not name:
+            return True
+        pattern = os.path.join(cache, "models--*--faster-whisper-" + name)
+        return bool(glob.glob(pattern))
+
+    names = [p["model"] for p in cfg.get("profiles") or [] if p.get("model")]
+    return bool(names) and all(_has(n) for n in names)
 
 
 _cfg_early = _read_cfg()
@@ -121,7 +125,7 @@ DEFAULTS = {
     "compute_type": "auto",
     "audio_device": None,
     "samplerate": 16000,
-    "beam_size": 2,
+    "beam_size": 5,
     "type_newline": True,
     "sound": True,
     "paste_last_hotkey": ["ctrl", "shift", "f12"],
@@ -134,10 +138,6 @@ DEFAULTS = {
             "model": "small.en",
             "language": "en",
             "hotwords_file": "hotwords-en.txt",
-            "prompt_prefix": (
-                "Transcribe the following technical dictation. "
-                "The terms below are expected and important:"
-            ),
             "labels": {
                 "listening": "Listening…",
                 "transcribing": "Transcribing…",
@@ -152,10 +152,9 @@ DEFAULTS = {
             "model": "medium",
             "language": "de",
             "hotwords_file": "hotwords-de.txt",
-            "prompt_prefix": (
-                "Transkribiere die folgende technische Diktation. "
-                "Folgende Begriffe sind wichtig und werden erwartet:"
-            ),
+            # German live preview: tiny/base are far too weak for German; a
+            # large-v3-turbo instance shows near-perfect text while recording.
+            "streaming_model": "large-v3-turbo",
             "labels": {
                 "listening": "Hören…",
                 "transcribing": "Transkribieren…",
@@ -241,16 +240,19 @@ class Profile:
         self.hotkey = list(p.get("hotkey", ["ctrl", "shift", "space"]))
         self.model = p.get("model", "small.en")
         self.language = p.get("language", "en")
+        # Optional per-profile preview model; falls back to the global
+        # "streaming_model" setting (see enhanced_features._get_stream_model).
+        self.streaming_model = p.get("streaming_model")
         self.hotwords_file = p.get("hotwords_file", "hotwords.txt")
         self.hotwords = load_hotwords(self.hotwords_file)
         self.corrections_file = p.get("corrections_file") or f"corrections-{self.language}.txt"
         self.corrections = load_corrections(self.corrections_file)
-        self.prompt_prefix = p.get(
-            "prompt_prefix",
-            "Transcribe the following technical dictation. "
-            "The terms below are expected and important:",
-        )
-        self.initial_prompt = (self.prompt_prefix + " " + self.hotwords).strip()
+        # No initial_prompt on purpose: Whisper's prompt slot means "already
+        # transcribed text", not instructions. An instruction prefix (plus the
+        # hotword list) made the model echo prompt words instead of
+        # transcribing - a 20s German dictation once decoded to just three
+        # hotwords ("Backend Datenbank Repository"). The hotwords parameter
+        # alone biases the vocabulary with a single, size-capped copy.
         self.labels = p.get("labels", {})
         self.model_obj = None
 
@@ -768,7 +770,6 @@ def transcribe_thread(profile, buf):
         if audio.size == 0:
             show_state("ready")
             return
-        m = get_model(profile)
         done = threading.Event()
 
         def watchdog():
@@ -776,16 +777,21 @@ def transcribe_thread(profile, buf):
             while not done.wait(5):
                 log(f"[{profile.name}] STALL WATCH: transcribing for {time.time()-t0:.0f}s so far")
 
+        m = get_model(profile)
+
         threading.Thread(target=watchdog, daemon=True).start()
         t0 = time.time()
         show_state("transcribing", profile)
         segments, _info = m.transcribe(
             audio,
             language=profile.language,
-            beam_size=cfg.get("beam_size", 2),
-            initial_prompt=profile.initial_prompt,
+            beam_size=cfg.get("beam_size", 5),
             hotwords=profile.hotwords,
             vad_filter=True,
+            # Never condition on this recording's own earlier output: once a
+            # segment goes wrong (echo, repetition), conditioning feeds the
+            # garbage back in and the rest of the dictation is lost.
+            condition_on_previous_text=False,
         )
         parts = [seg.text.strip() for seg in segments]
         text = apply_corrections(" ".join(parts).strip(), profile.corrections)
@@ -845,7 +851,6 @@ def paste_last(icon=None, item=None):
 def reload_hotwords(icon=None):
     for p in profiles:
         p.hotwords = load_hotwords(p.hotwords_file)
-        p.initial_prompt = (p.prompt_prefix + " " + p.hotwords).strip()
         p.corrections = load_corrections(p.corrections_file)
     log("Hotwords and corrections reloaded")
     if icon:

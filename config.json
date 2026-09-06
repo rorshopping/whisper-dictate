@@ -4,7 +4,7 @@
   "compute_type": "auto",
   "audio_device": null,
   "samplerate": 16000,
-  "beam_size": 2,
+  "beam_size": 5,
   "type_newline": true,
   "sound": true,
   "history_enabled": true,
@@ -22,7 +22,6 @@
       "language": "en",
       "hotwords_file": "hotwords-en.txt",
       "corrections_file": "corrections-en.txt",
-      "prompt_prefix": "Transcribe the following technical dictation. The terms below are expected and important:",
       "labels": {
         "listening": "Listening…",
         "transcribing": "Transcribing…",
@@ -37,7 +36,7 @@
       "model": "medium",
       "language": "de",
       "hotwords_file": "hotwords-de.txt",
-      "prompt_prefix": "Transkribiere die folgende technische Diktation. Folgende Begriffe sind wichtig und werden erwartet:",
+      "streaming_model": "large-v3-turbo",
       "labels": {
         "listening": "Hören…",
         "transcribing": "Transkribieren…",

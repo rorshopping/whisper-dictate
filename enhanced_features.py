@@ -3,7 +3,8 @@
 The existing main.py remains the core app. This module adds high-value features
 without replacing that small architecture:
 
-1. Live streaming preview using a dedicated tiny Whisper model.
+1. Live streaming preview using a dedicated preview Whisper model (per
+   profile, e.g. large-v3-turbo for German - tiny is too weak there).
 2. Local transcription history with a global history hotkey.
 3. Safe model coordination so preview and final transcription never compete for
    the same faster-whisper model instance.
@@ -11,6 +12,7 @@ without replacing that small architecture:
 Run through launcher.py so the existing implementation stays easy to audit.
 """
 
+import glob
 import json
 import os
 import threading
@@ -36,8 +38,10 @@ def _history_hotkey():
 
 def _cache_has_model(model_name):
     cache = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
-    path = os.path.join(cache, "models--Systran--faster-whisper-" + model_name)
-    return os.path.isdir(path)
+    # Org differs per model (Systran for most, mobiuslabsgmbh for
+    # large-v3-turbo), so match on the repo basename only.
+    pattern = os.path.join(cache, "models--*--faster-whisper-" + model_name)
+    return bool(glob.glob(pattern))
 
 
 def _history_enabled():
@@ -128,7 +132,9 @@ def on_release(key):
 
 def _get_stream_model(profile):
     global _STREAM_MODEL, _STREAM_MODEL_NAME
-    model_name = app.cfg.get("streaming_model", "tiny")
+    # Per-profile override first (tiny is far too weak for German preview);
+    # an override equal to the profile model just shares that instance.
+    model_name = profile.streaming_model or app.cfg.get("streaming_model", "tiny")
     if not model_name or model_name == profile.model:
         return app.get_model(profile), False
     with _STREAM_LOCK:
@@ -182,7 +188,6 @@ def _preview_text(model, audio, profile):
             audio,
             language=profile.language,
             beam_size=1,
-            initial_prompt=profile.initial_prompt,
             hotwords=profile.hotwords,
             vad_filter=True,
             condition_on_previous_text=False,
@@ -283,10 +288,12 @@ def transcribe_thread(profile, buf):
             segments, _info = model.transcribe(
                 audio,
                 language=profile.language,
-                beam_size=app.cfg.get("beam_size", 2),
-                initial_prompt=profile.initial_prompt,
+                beam_size=app.cfg.get("beam_size", 5),
                 hotwords=profile.hotwords,
                 vad_filter=True,
+                # Same rationale as main.transcribe_thread: don't feed this
+                # recording's own earlier output back as context.
+                condition_on_previous_text=False,
             )
             text = app.apply_corrections(
                 " ".join(seg.text.strip() for seg in segments).strip(),

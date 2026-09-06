@@ -4,3 +4,4 @@ __pycache__/
 dictate.log
 .app.lock
 test.wav
+transcription-history.jsonl

@@ -1,5 +1,6 @@
 # Ein Begriff pro Zeile. Ergänze Wörter, die Whisper falsch erkennt.
-# Diese werden als Hotwords + Initial-Prompt an das Modell übergeben.
+# Diese werden als Hotwords an das Modell übergeben (Begriffe, die im
+# Decoder-Kontext bevorzugt werden sollen).
 # Zeilen mit # werden ignoriert.
 
 API
