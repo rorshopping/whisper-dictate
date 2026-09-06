@@ -49,6 +49,14 @@ are cached locally, so first run downloads automatically):
 
 Then either run `run.bat` or use the existing Start Menu / Startup shortcuts.
 
+Headless (no terminal window): the app always starts via `pythonw.exe`
+(windowless) with `--headless`, which also hides the console if one exists
+(e.g. launched from `cmd.exe`). `run.bat` starts it minimized; double-click
+`run_hidden.vbs` for a start with zero console flash. All output goes to
+`dictate.log` next to `main.py`, so closing any terminal never stops the app
+— quit via the tray icon menu. Pass `--console` to keep a console for
+debugging.
+
 ## Setup (macOS)
 
 The app has non-Windows code paths (file lock instead of mutex, beep via
@@ -86,6 +94,11 @@ labels). Hotwords are one term per line in the per-language text files.
   click-through and translucent, so it never blocks what's behind it.
 - `pill_alpha` — status pill opacity, 0 (invisible) to 255 (solid).
   Default `150`.
+- `model_idle_unload_minutes` — minutes of inactivity after which loaded
+  Whisper models are dropped from RAM to keep idle usage low (a few seconds
+  later, the next dictation reloads the model from the local cache). Default
+  `10`; set to `0` to keep models loaded forever. The tray menu also has an
+  "Unload models now" item.
 
 ## Troubleshooting
 

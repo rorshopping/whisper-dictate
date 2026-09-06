@@ -12,6 +12,7 @@
   "streaming_enabled": true,
   "streaming_model": "tiny",
   "streaming_interval": 1.25,
+  "model_idle_unload_minutes": 10,
   "paste_last_hotkey": ["ctrl", "shift", "f12"],
   "profiles": [
     {
@@ -20,6 +21,7 @@
       "model": "small.en",
       "language": "en",
       "hotwords_file": "hotwords-en.txt",
+      "corrections_file": "corrections-en.txt",
       "prompt_prefix": "Transcribe the following technical dictation. The terms below are expected and important:",
       "labels": {
         "listening": "Listening…",

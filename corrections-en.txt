@@ -1,0 +1,12 @@
+# Deterministic post-transcription corrections: wrong => correct, one per line.
+# Applied case-insensitively to every final transcription (fast, no model cost).
+# Add variants Whisper actually outputs, e.g. if it writes "pie coding agent".
+# Lines starting with # are ignored. Reload via tray menu "Reload hotwords".
+
+py coding agent => pi coding agent
+pie coding agent => pi coding agent
+committment push => commit and push
+commitment push => commit and push
+herder => herdr
+reppo => repo
+github => GitHub

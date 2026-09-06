@@ -82,7 +82,8 @@ def open_history():
 
 
 def _history_key_pressed():
-    return bool(app.pressed & _history_hotkey())
+    hk = _history_hotkey()
+    return bool(hk) and hk <= app.pressed
 
 
 def on_press(key):
@@ -134,11 +135,16 @@ def _get_stream_model(profile):
         if _STREAM_MODEL is None or _STREAM_MODEL_NAME != model_name:
             from faster_whisper import WhisperModel
             if app.cfg.get("offline", True) and not _cache_has_model(model_name):
+                # No separate preview model available offline: fall back to the
+                # already-loaded profile model so the pill still shows live
+                # text instead of silently disabling the preview. The final
+                # paste-at-end path is unchanged - the preview never types
+                # into the document, it only updates the status pill.
                 app.log(
                     f"[stream] Preview model '{model_name}' is not cached; "
-                    "live preview disabled for this recording"
+                    f"falling back to profile model '{profile.model}' for preview"
                 )
-                return None, False
+                return app.get_model(profile), False
             app.log(f"[stream] Loading preview model '{model_name}'...")
             _STREAM_MODEL = WhisperModel(
                 model_name, device=app.DEVICE, compute_type=app.COMPUTE
@@ -146,6 +152,17 @@ def _get_stream_model(profile):
             _STREAM_MODEL_NAME = model_name
             app.log(f"[stream] Preview model '{model_name}' ready")
         return _STREAM_MODEL, True
+
+
+def unload_stream_model():
+    """Drop the dedicated streaming preview model; returns True if it was loaded."""
+    global _STREAM_MODEL, _STREAM_MODEL_NAME
+    with _STREAM_LOCK:
+        if _STREAM_MODEL is None:
+            return False
+        _STREAM_MODEL = None
+        _STREAM_MODEL_NAME = None
+        return True
 
 
 def _snapshot_audio():
@@ -157,6 +174,7 @@ def _snapshot_audio():
 
 
 def _preview_text(model, audio, profile):
+    app.touch_model_use()
     if audio.size < int(app.cfg["samplerate"] * 0.65):
         return ""
     with _STREAM_LOCK:
@@ -169,7 +187,8 @@ def _preview_text(model, audio, profile):
             vad_filter=True,
             condition_on_previous_text=False,
         )
-        return " ".join(seg.text.strip() for seg in segments).strip()
+        preview = " ".join(seg.text.strip() for seg in segments).strip()
+        return app.apply_corrections(preview, profile.corrections)
 
 
 def _stream_worker(profile):
@@ -269,7 +288,10 @@ def transcribe_thread(profile, buf):
                 hotwords=profile.hotwords,
                 vad_filter=True,
             )
-            text = " ".join(seg.text.strip() for seg in segments).strip()
+            text = app.apply_corrections(
+                " ".join(seg.text.strip() for seg in segments).strip(),
+                profile.corrections,
+            )
 
         done.set()
         duration = audio.size / app.cfg["samplerate"]
@@ -289,10 +311,17 @@ def transcribe_thread(profile, buf):
         done.set()
         app.show_state("error", profile)
         app.log(f"[{profile.name}] Error: {exc}")
+        import logging as _logging
+
+        _logging.exception(f"[{profile.name}] Error")
         import traceback
-        traceback.print_exc()
+        try:
+            traceback.print_exc()
+        except Exception:
+            pass
     finally:
         done.set()
+        app.touch_model_use()
         app.show_state("ready")
 
 

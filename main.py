@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import queue
+import re
 import sys
 import threading
 import time
@@ -18,6 +19,27 @@ from PIL import Image, ImageDraw
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 APP_NAME = "Whisper Dictate"
+
+# Headless startup: hide any console window when launched with --headless
+# (used by run.bat / run_hidden.vbs / Startup shortcut). pythonw.exe already
+# has no console; this covers launches via python.exe or cmd.exe so no
+# terminal window stays visible. Pass --console to keep the console.
+HEADLESS = "--headless" in sys.argv or "--hide-console" in sys.argv
+
+
+def _hide_console():
+    if sys.platform != "win32" or "--console" in sys.argv:
+        return
+    try:
+        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if hwnd:
+            ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE
+    except Exception:
+        pass
+
+
+if HEADLESS:
+    _hide_console()
 
 
 def _read_cfg():
@@ -62,11 +84,22 @@ def _add_cuda_dlls_to_path():
 
 _add_cuda_dlls_to_path()
 
+logging.basicConfig(
+    filename=os.path.join(BASE_DIR, "dictate.log"),
+    level=logging.INFO,
+    format="%(asctime)s %(message)s",
+)
+
 if sys.platform == "win32":
     MUTEX_NAME = APP_NAME.replace(" ", "")
     _mutex = ctypes.windll.kernel32.CreateMutexW(None, False, MUTEX_NAME)
     if ctypes.windll.kernel32.GetLastError() in (183, 5):
-        print("Another Whisper Dictate instance is already running - exiting.")
+        logging.info("Another Whisper Dictate instance is already running - exiting.")
+        try:
+            if sys.stdout is not None:
+                print("Another Whisper Dictate instance is already running - exiting.")
+        except Exception:
+            pass
         sys.exit(0)
 else:
     _LOCK_FILE = os.path.join(BASE_DIR, ".app.lock")
@@ -74,14 +107,13 @@ else:
         _lf = os.open(_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         os.write(_lf, str(os.getpid()).encode())
     except FileExistsError:
-        print("Another Whisper Dictate instance is already running - exiting.")
+        logging.info("Another Whisper Dictate instance is already running - exiting.")
+        try:
+            if sys.stdout is not None:
+                print("Another Whisper Dictate instance is already running - exiting.")
+        except Exception:
+            pass
         sys.exit(0)
-
-logging.basicConfig(
-    filename=os.path.join(BASE_DIR, "dictate.log"),
-    level=logging.INFO,
-    format="%(asctime)s %(message)s",
-)
 
 DEFAULTS = {
     "offline": True,
@@ -94,6 +126,7 @@ DEFAULTS = {
     "sound": True,
     "paste_last_hotkey": ["ctrl", "shift", "f12"],
     "paste_button_linger": 10,
+    "model_idle_unload_minutes": 10,
     "profiles": [
         {
             "name": "EN",
@@ -157,6 +190,42 @@ def load_hotwords(path):
     return " ".join(words)
 
 
+def load_corrections(path):
+    """Load deterministic wrong=>correct pairs. Missing/empty file -> []."""
+    if not path:
+        return []
+    full = path if os.path.isabs(path) else os.path.join(BASE_DIR, path)
+    if not os.path.exists(full):
+        return []
+    pairs = []
+    with open(full, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=>" not in line:
+                continue
+            wrong, correct = line.split("=>", 1)
+            wrong, correct = wrong.strip(), correct.strip()
+            if wrong and correct:
+                pairs.append((wrong, correct))
+    # Longest first so longer phrases win over their substrings.
+    pairs.sort(key=lambda p: len(p[0]), reverse=True)
+    return pairs
+
+
+def apply_corrections(text, corrections):
+    """Deterministic replacement: case-insensitive, word-boundary aware."""
+    for wrong, correct in corrections or []:
+        def _repl(m, correct=correct):
+            s = m.group(0)
+            if s and s[0].isupper() and correct:
+                return correct[0].upper() + correct[1:]
+            return correct
+        text = re.sub(
+            r"\b" + re.escape(wrong) + r"\b", _repl, text, flags=re.IGNORECASE
+        )
+    return text
+
+
 def _display_key(k):
     return {
         "ctrl": "Ctrl",
@@ -174,6 +243,8 @@ class Profile:
         self.language = p.get("language", "en")
         self.hotwords_file = p.get("hotwords_file", "hotwords.txt")
         self.hotwords = load_hotwords(self.hotwords_file)
+        self.corrections_file = p.get("corrections_file") or f"corrections-{self.language}.txt"
+        self.corrections = load_corrections(self.corrections_file)
         self.prompt_prefix = p.get(
             "prompt_prefix",
             "Transcribe the following technical dictation. "
@@ -228,6 +299,11 @@ PASTE_LAST_HOTKEY = list(cfg.get("paste_last_hotkey") or [])
 PASTE_BUTTON_LINGER = float(cfg.get("paste_button_linger", 10))
 # 0-255 pill opacity; it never intercepts clicks either way.
 PILL_ALPHA = int(cfg.get("pill_alpha", 150))
+# Minutes of inactivity after which loaded Whisper models are dropped from RAM
+# (0 disables unloading). CTranslate2 keeps freed memory resident, so without
+# this the process stays at its post-transcription high-water mark forever.
+MODEL_IDLE_UNLOAD_S = float(cfg.get("model_idle_unload_minutes", 10)) * 60
+model_use_time = time.time()
 
 STATUS_QUEUE = queue.Queue()
 OVERLAY_ROOT = None
@@ -244,7 +320,12 @@ STATE_COLORS = {
 
 def log(msg):
     logging.info(msg)
-    print(f"[dictate] {msg}", flush=True)
+    try:
+        # sys.stdout is None under pythonw.exe with no console - never crash there.
+        if sys.stdout is not None:
+            print(f"[dictate] {msg}", flush=True)
+    except Exception:
+        pass
 
 
 def beep(freq, dur=90):
@@ -318,6 +399,7 @@ def _set_foreground(hwnd):
 class StatusOverlay:
     def __init__(self):
         self.root = tk.Tk()
+        self.root.title(APP_NAME)
         self.root.withdraw()
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
@@ -619,7 +701,63 @@ def get_model(profile):
                 profile.model, device=DEVICE, compute_type=COMPUTE
             )
             log(f"[{profile.name}] Model loaded in {time.time()-t0:.1f}s")
+        touch_model_use()
         return profile.model_obj
+
+
+def touch_model_use():
+    global model_use_time
+    model_use_time = time.time()
+
+
+def unload_models():
+    """Drop every loaded Whisper model so the OS reclaims the RAM.
+
+    In-flight transcriptions keep their own reference to the model object, so
+    an unload during inference is safe - the memory is freed once it finishes.
+    """
+    unloaded = []
+    try:
+        import enhanced_features
+
+        if enhanced_features.unload_stream_model():
+            unloaded.append("streaming preview")
+    except Exception:
+        pass
+    with model_lock:
+        for p in profiles:
+            if p.model_obj is not None:
+                p.model_obj = None
+                unloaded.append(p.model)
+    return unloaded
+
+
+def unload_models_now(icon=None, item=None):
+    if recording["active"]:
+        if icon:
+            icon.notify("Finish the current recording first", APP_NAME)
+        return
+    unloaded = unload_models()
+    if icon:
+        icon.notify(
+            "Models unloaded" if unloaded else "No models were loaded", APP_NAME
+        )
+    log("Unloaded models: " + (", ".join(unloaded) if unloaded else "none"))
+
+
+def _model_idle_watchdog():
+    while True:
+        time.sleep(30)
+        if MODEL_IDLE_UNLOAD_S <= 0 or recording["active"]:
+            continue
+        if time.time() - model_use_time < MODEL_IDLE_UNLOAD_S:
+            continue
+        unloaded = unload_models()
+        if unloaded:
+            log(
+                f"Idle for {MODEL_IDLE_UNLOAD_S / 60:.0f} min - unloaded: "
+                + ", ".join(unloaded)
+            )
 
 
 def transcribe_thread(profile, buf):
@@ -650,7 +788,7 @@ def transcribe_thread(profile, buf):
             vad_filter=True,
         )
         parts = [seg.text.strip() for seg in segments]
-        text = " ".join(parts).strip()
+        text = apply_corrections(" ".join(parts).strip(), profile.corrections)
         done.set()
         log(
             f"[{profile.name}] Transcribed {audio.size/cfg['samplerate']:.1f}s audio in {time.time()-t0:.1f}s"
@@ -667,10 +805,15 @@ def transcribe_thread(profile, buf):
         done.set()
         show_state("error", profile)
         log(f"[{profile.name}] Error: {e}")
+        logging.exception(f"[{profile.name}] Error")
         import traceback
 
-        traceback.print_exc()
+        try:
+            traceback.print_exc()
+        except Exception:
+            pass
     finally:
+        touch_model_use()
         show_state("ready")
 
 
@@ -703,9 +846,10 @@ def reload_hotwords(icon=None):
     for p in profiles:
         p.hotwords = load_hotwords(p.hotwords_file)
         p.initial_prompt = (p.prompt_prefix + " " + p.hotwords).strip()
-    log("Hotwords reloaded")
+        p.corrections = load_corrections(p.corrections_file)
+    log("Hotwords and corrections reloaded")
     if icon:
-        icon.notify("Hotwords reloaded", APP_NAME)
+        icon.notify("Hotwords and corrections reloaded", APP_NAME)
 
 
 def make_icon_image():
@@ -748,7 +892,9 @@ def _open_audio_settings(icon=None, item=None):
 
 
 def main():
-    log(f"{APP_NAME} - device={DEVICE} compute={COMPUTE}")
+    log(f"{APP_NAME} pid={os.getpid()} exe={sys.executable} - device={DEVICE} compute={COMPUTE}")
+    if MODEL_IDLE_UNLOAD_S > 0:
+        log(f"Models unload after {MODEL_IDLE_UNLOAD_S / 60:.0f} min idle")
     for p in profiles:
         log(f"[{p.name}] {p.hotkey_str()} -> model {p.model}, language {p.language}")
     _open_audio_settings()
@@ -790,6 +936,9 @@ def main():
                 show_state("ready")
 
     threading.Thread(target=preload, daemon=True).start()
+    threading.Thread(
+        target=_model_idle_watchdog, daemon=True, name="model-idle-watchdog"
+    ).start()
 
     listener = pkb.Listener(on_press=on_press, on_release=on_release)
     listener.daemon = True
@@ -804,6 +953,7 @@ def main():
         pystray.MenuItem("Paste last transcription", paste_last),
         pystray.MenuItem("Show microphone devices", _open_audio_settings),
         pystray.MenuItem("Reload hotwords", reload_hotwords),
+        pystray.MenuItem("Unload models now", unload_models_now),
         pystray.MenuItem("Quit", quit_app),
     )
     icon = pystray.Icon("whisper_dictate", make_icon_image(), APP_NAME, menu)
