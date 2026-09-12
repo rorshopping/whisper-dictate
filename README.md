@@ -6,10 +6,10 @@ hold a hotkey, speak, release — the text is transcribed on your own machine
 
 Supports **two profiles** in one app:
 
-| Profile | Hotkey | Model | Language |
-|---------|--------|-------|----------|
-| EN      | Ctrl + Shift + Space | `small.en` | English |
-| DE      | Ctrl + Alt + Space   | `medium`   | German   |
+| Profile | Hotkey | Engine | Model | Language |
+|---------|--------|--------|-------|----------|
+| EN      | Ctrl + Shift + Space | NVIDIA Nemotron (transformers) | `nvidia/nemotron-speech-streaming-en-0.6b` | English |
+| DE      | Ctrl + Alt + Space   | NVIDIA Nemotron (transformers) | `nvidia/nemotron-3.5-asr-streaming-0.6b` (language prompt `de` → de-DE) | German |
 
 The status indicator sits at the bottom-center of the screen and always shows
 the current state and both hotkeys, so you never forget them.
@@ -18,7 +18,12 @@ the current state and both hotkeys, so you never forget them.
 
 - 100% local / offline — no audio ever leaves your machine
 - NVIDIA CUDA acceleration (falls back to CPU automatically)
+- English: NVIDIA Nemotron Speech Streaming 0.6B — punctuation and
+  capitalization are built in (no Whisper-style "sentences without casing")
+- German: NVIDIA Nemotron 3.5 ASR Streaming 0.6B with an explicit `de-DE`
+  language prompt (the multilingual model never auto-detects the language)
 - Hotwords per language: customize `hotwords-en.txt` / `hotwords-de.txt`
+  (faster-whisper profiles only — see "Nemotron models" below)
 - **Paste last transcription**: if you forget to click into a text field before
   dictating, select the field afterwards and press `Ctrl+Shift+F12` (or use the
   tray menu "Paste last transcription") to insert the most recent recording
@@ -37,11 +42,14 @@ the current state and both hotkeys, so you never forget them.
 ```powershell
 cd C:\Users\Richard\Documents\Projects\whisper-dictate
 py -3.12 -m venv .venv
+# GPU transcription for the English Nemotron engine (PyPI's torch is CPU-only):
+.venv\Scripts\pip install torch --index-url https://download.pytorch.org/whl/cu126
 .venv\Scripts\pip install -r requirements.txt
 ```
 
 Run once to download the models (offline mode only kicks in once the models
-are cached locally, so first run downloads automatically):
+are cached locally, so first run downloads automatically). Each Nemotron model
+is ~2.4 GB and is fetched by the profile's first use:
 
 ```powershell
 .venv\Scripts\python main.py
@@ -55,7 +63,13 @@ Headless (no terminal window): the app always starts via `pythonw.exe`
 `run_hidden.vbs` for a start with zero console flash. All output goes to
 `dictate.log` next to `main.py`, so closing any terminal never stops the app
 — quit via the tray icon menu. Pass `--console` to keep a console for
-debugging.
+debugging. The log is size-capped (~1 MB plus two rotated backups).
+
+Self-check: run `.venv\Scripts\python main.py --doctor` for a pass/fail
+summary of config parsing, dependencies, CUDA/microphone access, model cache
+presence, hotkey conflicts, and the hotword/correction files. It starts no
+listener, GUI, audio stream, or model load, and can run while the app is
+dictating. Exit code is `1` when any check fails.
 
 ## Setup (macOS)
 
@@ -68,11 +82,12 @@ chmod +x run_mac.sh
 ```
 
 macOS notes:
-- The first run downloads the models (~460 MB for `small.en`, ~1.5 GB for
-  `medium`) from Hugging Face — keep internet on for that one run.
+- The first run downloads the models from Hugging Face (~2.4 GB for each of
+  the English and German Nemotron models) — keep internet on for that one run.
 - GPU: add your MPS/GPU compute settings in `config.json` (`device` /
   `compute_type`) — e.g. `"device": "cpu"` is the safest default on Apple
-  Silicon without CUDA.
+  Silicon without CUDA. The Nemotron engine currently runs on CUDA or CPU
+  only (no MPS path), so on a Mac the English profile uses the CPU.
 - The bottom-center overlay uses Tk, which works on macOS; the click-through
   flag is Windows-only, so the pill may intercept clicks on a Mac.
 - Microphone + keyboard capture on macOS requires granting the terminal app
@@ -82,22 +97,34 @@ macOS notes:
 ## Configuration
 
 `config.json` is created/merged over the built-in defaults. The `profiles`
-array defines each profile (hotkey, model, language, hotwords file, status
-labels). Hotwords are one term per line in the per-language text files and are
-passed to Whisper as `hotwords` (vocabulary hints). No `initial_prompt` is
-sent: Whisper's prompt slot means "already transcribed text", not
-instructions, and instruction-style prompts made the model echo prompt words
-instead of transcribing.
+array defines each profile (hotkey, `engine`, model, language, hotwords file,
+status labels). `engine` is `"faster-whisper"` (default) or `"nemotron"`; a
+model id containing `/` implies `"nemotron"` automatically. Hotwords are one
+term per line in the per-language text files and are passed to Whisper as
+`hotwords` (vocabulary hints) — the Nemotron engines have no vocabulary biasing
+and ignore them. On the multilingual Nemotron checkpoint the profile's
+`language` doubles as the model's language prompt (`de` → `de-DE`), so
+changing it changes what language the model is conditioned on. No
+`initial_prompt` is sent: Whisper's prompt slot means
+"already transcribed text", not instructions, and instruction-style prompts
+made the model echo prompt words instead of transcribing.
 
 - `beam_size` — beam search width for the final transcription. Default `5`.
-- `streaming_model` — preview model for the live pill text while recording,
-  global default `tiny`. A profile can override it via `"streaming_model"` in
-  the profile (the DE profile uses `large-v3-turbo`: tiny/base are far too
-  weak for German). Setting it to the profile's own `model` reuses that
-  instance instead of loading a second one.
 - `paste_last_hotkey` — global hotkey to re-insert the most recent
   transcription into the currently focused field. Default `["ctrl", "shift",
   "f12"]`; set to `[]` to disable (the tray menu item still works).
+- `scratch_hotkey` — global hotkey that erases the most recent dictation by
+  sending backspaces for the exact number of typed characters. Default
+  `["ctrl", "shift", "f13"]`; set to `[]` to disable.
+- `fuzzy_hotwords` — after transcription, transcript tokens are fuzzy matched
+  against the profile's `hotwords-*.txt` entries and close misses are
+  rewritten to the canonical spelling ("pie coding agent" → "Pi coding
+  agent"). This makes the hotword files effective on engines without
+  vocabulary biasing (Nemotron). Default `true`; `fuzzy_hotword_min_score`
+  tunes the strictness (0-100, default `85`; raise it to only accept very
+  close matches). Uses rapidfuzz when installed, otherwise the stdlib's
+  `difflib` — no extra dependency required. Every replacement is logged to
+  `dictate.log`.
 - `paste_button_linger` — seconds the on-screen "Paste last" button stays up
   after a transcription before it fades out (hovering it pauses the fade; the
   hotkey works regardless). Default `10`; the status pill itself is fully
@@ -105,26 +132,50 @@ instead of transcribing.
 - `pill_alpha` — status pill opacity, 0 (invisible) to 255 (solid).
   Default `150`.
 - `model_idle_unload_minutes` — minutes of inactivity after which loaded
-  Whisper models are dropped from RAM to keep idle usage low (a few seconds
-  later, the next dictation reloads the model from the local cache). Default
-  `10`; set to `0` to keep models loaded forever. The tray menu also has an
-  "Unload models now" item.
+  models are dropped from RAM/VRAM to keep idle usage low. The model starts
+  reloading from the local cache the moment a dictation hotkey is pressed
+  (while you keep speaking), so releasing the hotkey only has to decode the
+  audio. Default `10`; set to `0` to keep models loaded forever. The tray menu
+  also has an "Unload models now" item.
 
-### German models
+### Nemotron models
 
-The DE profile transcribes with `medium` (best punctuation/accuracy/speed
-balance on an 8 GB GPU in benchmarks) and previews live with
-`large-v3-turbo` (near-perfect German, ~3x faster than medium). To try a
-different model, set `"model"` in the DE profile: `large-v3` scores similar
-to `medium` but decodes ~2x slower; `large-v3-turbo` decodes fastest but can
-drop sentence periods when given long hotword lists. The first run downloads
-the model automatically (~1.6 GB for turbo).
+Both profiles transcribe with NVIDIA Nemotron streaming models through Hugging
+Face Transformers (not faster-whisper), at the widest right context the
+checkpoints support (1.12 s) for maximum offline accuracy:
+
+- **EN** — [`nemotron-speech-streaming-en-0.6b`](https://huggingface.co/nvidia/nemotron-speech-streaming-en-0.6b):
+  English-only, 600M parameters, trained on ~530k hours.
+- **DE** — [`nemotron-3.5-asr-streaming-0.6b`](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b):
+  multilingual (40 locales) conditioned on an explicit language prompt. The
+  profile's `language` (`de`) is resolved to the German prompt ID (`de-DE`)
+  and always passed to the model, so it never auto-detects the language. Other
+  locales work the same way (`fr`, `it`, `es`, ... — full list on the model
+  card).
+
+Common notes:
+
+- Requirements: `torch` (CUDA build for GPU) and `transformers>=5.13`.
+- Each checkpoint is ~2.4 GB and is downloaded on first use (or by running the
+  app once with internet on).
+- `hotwords-*.txt` is not used by these engines; put deterministic fixes in
+  `corrections-*.txt` instead (applied to every transcription).
+- To go back to faster-whisper for a profile, set
+  `"engine": "faster-whisper"` and a faster-whisper `"model"` (e.g. `small.en`
+  for English, `large-v3-turbo` for German) in `config.json`.
 
 ## Troubleshooting
 
 - Log file: `dictate.log` next to `main.py`.
 - CUDA: `device`/`compute_type` `"auto"` picks CUDA+float16 when available,
-  CPU+int8 otherwise.
+  CPU+int8 otherwise (faster-whisper); the Nemotron engines run fp16 on CUDA
+  and fp32 on CPU, and log a warning when they fall back to CPU.
+- Language prompt: on the multilingual (DE) checkpoint the profile's
+  `language` must be one the model supports (e.g. `de`, `de-DE`); an
+  unsupported value fails with an error that lists the valid options.
+- Nemotron import errors: install `transformers>=5.13`; for GPU transcription
+  install torch from the CUDA index (see Setup), otherwise transcription still
+  works but runs on the CPU.
 - Offline: once models are downloaded, `"offline": true` (the default) skips
   the network check. Offline is only enforced when the models are already in
   the local cache, so first-time setup still downloads.

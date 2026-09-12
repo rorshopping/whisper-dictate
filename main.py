@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 import tkinter as tk
+from logging.handlers import RotatingFileHandler
 
 import numpy as np
 import pynput.keyboard as pkb
@@ -26,6 +27,10 @@ APP_NAME = "Whisper Dictate"
 # has no console; this covers launches via python.exe or cmd.exe so no
 # terminal window stays visible. Pass --console to keep the console.
 HEADLESS = "--headless" in sys.argv or "--hide-console" in sys.argv
+
+# Self-check mode: verifies the setup and exits before any listener, audio
+# stream, GUI, or model load starts (see run_doctor).
+DOCTOR = "--doctor" in sys.argv
 
 
 def _hide_console():
@@ -57,13 +62,17 @@ def _read_cfg():
 
 def _models_cached(cfg):
     cache = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
-    # The HF cache dir is "models--<org>--faster-whisper-<name>" and the org
-    # differs per model (Systran for most, mobiuslabsgmbh for large-v3-turbo),
-    # so match on the repo basename only.
+    # faster-whisper models live in "models--<org>--faster-whisper-<name>" (the
+    # org differs per model: Systran, mobiuslabsgmbh, ...), so match on the repo
+    # basename only. Full HF repo ids (containing "/") such as the Nemotron
+    # engine use the plain "models--<org>--<repo>" directory.
     def _has(name):
         if not name:
             return True
-        pattern = os.path.join(cache, "models--*--faster-whisper-" + name)
+        if "/" in name:
+            pattern = os.path.join(cache, "models--" + name.replace("/", "--"))
+        else:
+            pattern = os.path.join(cache, "models--*--faster-whisper-" + name)
         return bool(glob.glob(pattern))
 
     names = [p["model"] for p in cfg.get("profiles") or [] if p.get("model")]
@@ -88,36 +97,68 @@ def _add_cuda_dlls_to_path():
 
 _add_cuda_dlls_to_path()
 
-logging.basicConfig(
-    filename=os.path.join(BASE_DIR, "dictate.log"),
-    level=logging.INFO,
-    format="%(asctime)s %(message)s",
-)
+# Size-capped so dictate.log cannot grow without bound (~1 MB after a week of
+# dictation); two rotated backups are kept alongside it.
+class _RotatingLog(RotatingFileHandler):
+    """RotatingFileHandler that tolerates a locked log file.
 
-if sys.platform == "win32":
-    MUTEX_NAME = APP_NAME.replace(" ", "")
-    _mutex = ctypes.windll.kernel32.CreateMutexW(None, False, MUTEX_NAME)
-    if ctypes.windll.kernel32.GetLastError() in (183, 5):
-        logging.info("Another Whisper Dictate instance is already running - exiting.")
+    On Windows the rename in doRollover fails while another process holds
+    dictate.log open (a --doctor run alongside a dictating instance, or an
+    editor showing a rotated backup). Logging must never break dictation, so
+    the rollover is skipped and retried on a later record instead.
+    """
+
+    def doRollover(self):
         try:
-            if sys.stdout is not None:
-                print("Another Whisper Dictate instance is already running - exiting.")
-        except Exception:
+            super().doRollover()
+        except OSError:
             pass
-        sys.exit(0)
-else:
-    _LOCK_FILE = os.path.join(BASE_DIR, ".app.lock")
-    try:
-        _lf = os.open(_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.write(_lf, str(os.getpid()).encode())
-    except FileExistsError:
-        logging.info("Another Whisper Dictate instance is already running - exiting.")
+
+
+_log_handler = _RotatingLog(
+    os.path.join(BASE_DIR, "dictate.log"),
+    maxBytes=1_000_000,
+    backupCount=2,
+    encoding="utf-8",
+)
+_log_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+logging.basicConfig(level=logging.INFO, handlers=[_log_handler])
+
+# The single-instance guard is skipped for --doctor: the self-check must be
+# runnable while another instance is dictating.
+if not DOCTOR:
+    if sys.platform == "win32":
+        MUTEX_NAME = APP_NAME.replace(" ", "")
+        _mutex = ctypes.windll.kernel32.CreateMutexW(None, False, MUTEX_NAME)
+        if ctypes.windll.kernel32.GetLastError() in (183, 5):
+            logging.info(
+                "Another Whisper Dictate instance is already running - exiting."
+            )
+            try:
+                if sys.stdout is not None:
+                    print(
+                        "Another Whisper Dictate instance is already running - exiting."
+                    )
+            except Exception:
+                pass
+            sys.exit(0)
+    else:
+        _LOCK_FILE = os.path.join(BASE_DIR, ".app.lock")
         try:
-            if sys.stdout is not None:
-                print("Another Whisper Dictate instance is already running - exiting.")
-        except Exception:
-            pass
-        sys.exit(0)
+            _lf = os.open(_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(_lf, str(os.getpid()).encode())
+        except FileExistsError:
+            logging.info(
+                "Another Whisper Dictate instance is already running - exiting."
+            )
+            try:
+                if sys.stdout is not None:
+                    print(
+                        "Another Whisper Dictate instance is already running - exiting."
+                    )
+            except Exception:
+                pass
+            sys.exit(0)
 
 DEFAULTS = {
     "offline": True,
@@ -129,13 +170,17 @@ DEFAULTS = {
     "type_newline": True,
     "sound": True,
     "paste_last_hotkey": ["ctrl", "shift", "f12"],
+    "scratch_hotkey": ["ctrl", "shift", "f13"],
+    "fuzzy_hotwords": True,
+    "fuzzy_hotword_min_score": 85,
     "paste_button_linger": 10,
     "model_idle_unload_minutes": 10,
     "profiles": [
         {
             "name": "EN",
             "hotkey": ["ctrl", "shift", "space"],
-            "model": "small.en",
+            "engine": "nemotron",
+            "model": "nvidia/nemotron-speech-streaming-en-0.6b",
             "language": "en",
             "hotwords_file": "hotwords-en.txt",
             "labels": {
@@ -149,12 +194,10 @@ DEFAULTS = {
         {
             "name": "DE",
             "hotkey": ["ctrl", "alt", "space"],
-            "model": "medium",
+            "engine": "nemotron",
+            "model": "nvidia/nemotron-3.5-asr-streaming-0.6b",
             "language": "de",
             "hotwords_file": "hotwords-de.txt",
-            # German live preview: tiny/base are far too weak for German; a
-            # large-v3-turbo instance shows near-perfect text while recording.
-            "streaming_model": "large-v3-turbo",
             "labels": {
                 "listening": "Hören…",
                 "transcribing": "Transkribieren…",
@@ -225,6 +268,54 @@ def apply_corrections(text, corrections):
     return text
 
 
+# --- Extension hooks --------------------------------------------------------
+# Add-ons (transcription history) register callbacks here instead of
+# duplicating and runtime-swapping on_press/on_release/transcribe_thread, so
+# there is exactly one implementation of the keyboard/transcription flow.
+# Every callback is invoked defensively: an exception in an add-on is logged
+# and can never take down the keyboard hook or a transcription. A key press
+# listener returns True to consume the event (later listeners and the
+# built-in handling are skipped).
+_press_listeners = []    # f(key_name) -> True if the press was consumed
+_release_listeners = []  # f(key_name)
+_text_listeners = []     # f(profile, text, duration_s) on a fresh transcription
+
+
+def add_key_press_listener(fn):
+    _press_listeners.append(fn)
+
+
+def add_key_release_listener(fn):
+    _release_listeners.append(fn)
+
+
+def add_text_listener(fn):
+    _text_listeners.append(fn)
+
+
+def _reconcile_hotwords(text, profile):
+    """Fuzzy hotword pass: rewrite near-misses to the canonical spellings.
+
+    The Nemotron engines ignore hotwords-*.txt (no vocabulary biasing), so
+    this makes the hotword files effective on every engine. Fail-safe: any
+    problem in the pass is logged and the text returned unchanged.
+    """
+    if not text or not FUZZY_HOTWORDS or not profile.hotword_list:
+        return text
+    try:
+        from hotword_fuzzy import reconcile
+
+        return reconcile(
+            text,
+            profile.hotword_list,
+            min_score=FUZZY_HOTWORD_MIN_SCORE,
+            log=log,
+        )
+    except Exception as exc:
+        log(f"[{profile.name}] Fuzzy hotword pass skipped: {exc}")
+        return text
+
+
 def _display_key(k):
     return {
         "ctrl": "Ctrl",
@@ -239,12 +330,18 @@ class Profile:
         self.name = p.get("name", f"P{idx + 1}")
         self.hotkey = list(p.get("hotkey", ["ctrl", "shift", "space"]))
         self.model = p.get("model", "small.en")
+        # "faster-whisper" (default) or "nemotron". A HF repo id (with "/")
+        # implies the Nemotron engine even without an explicit "engine" key.
+        self.engine = p.get("engine") or (
+            "nemotron" if "/" in self.model else "faster-whisper"
+        )
         self.language = p.get("language", "en")
-        # Optional per-profile preview model; falls back to the global
-        # "streaming_model" setting (see enhanced_features._get_stream_model).
-        self.streaming_model = p.get("streaming_model")
         self.hotwords_file = p.get("hotwords_file", "hotwords.txt")
         self.hotwords = load_hotwords(self.hotwords_file)
+        # Canonical spellings for the fuzzy hotword pass
+        # (hotword_fuzzy.reconcile) so hotwords-*.txt also reaches engines
+        # with no vocabulary biasing (Nemotron).
+        self.hotword_list = self.hotwords.split()
         self.corrections_file = p.get("corrections_file") or f"corrections-{self.language}.txt"
         self.corrections = load_corrections(self.corrections_file)
         # No initial_prompt on purpose: Whisper's prompt slot means "already
@@ -294,8 +391,15 @@ frames_lock = threading.Lock()
 pressed = set()
 last_text = None
 last_profile = None
+last_typed_text = None  # exact string last typed, for the scratch hotkey
 paste_last_fired = False
+scratch_fired = False
 PASTE_LAST_HOTKEY = list(cfg.get("paste_last_hotkey") or [])
+# Erase-the-last-dictation hotkey ("scratch that").
+SCRATCH_HOTKEY = list(cfg.get("scratch_hotkey") or [])
+# Fuzzy hotword reconciliation after transcription (see hotword_fuzzy).
+FUZZY_HOTWORDS = bool(cfg.get("fuzzy_hotwords", True))
+FUZZY_HOTWORD_MIN_SCORE = int(cfg.get("fuzzy_hotword_min_score", 85))
 # Seconds the paste button stays up after a fresh transcription before it
 # fades out (the Ctrl+Shift+F12 hotkey keeps working either way).
 PASTE_BUTTON_LINGER = float(cfg.get("paste_button_linger", 10))
@@ -630,11 +734,19 @@ def key_name(key):
 
 
 def on_press(key):
-    global paste_last_fired
+    global paste_last_fired, scratch_fired
     n = key_name(key)
     if n is None:
         return
     pressed.add(n)
+    # Add-on hotkeys (e.g. transcription history) run before everything else
+    # and may consume the press.
+    for fn in _press_listeners:
+        try:
+            if fn(n):
+                return
+        except Exception as exc:
+            log(f"Key press listener failed: {exc}")
     if recording["active"]:
         return
     for p in profiles:
@@ -648,18 +760,29 @@ def on_press(key):
     ):
         paste_last_fired = True
         paste_last()
+        return
+    if SCRATCH_HOTKEY and not scratch_fired and set(SCRATCH_HOTKEY) <= pressed:
+        scratch_fired = True
+        scratch_last()
 
 
 def on_release(key):
-    global paste_last_fired
+    global paste_last_fired, scratch_fired
     n = key_name(key)
     if n is None:
         return
     pressed.discard(n)
+    for fn in _release_listeners:
+        try:
+            fn(n)
+        except Exception as exc:
+            log(f"Key release listener failed: {exc}")
     if recording["active"] and not (set(recording["profile"].hotkey) <= pressed):
         stop_recording()
     if not set(PASTE_LAST_HOTKEY) <= pressed:
         paste_last_fired = False
+    if not set(SCRATCH_HOTKEY) <= pressed:
+        scratch_fired = False
 
 
 def audio_callback(indata, frames_cnt, time_info, status):
@@ -676,6 +799,16 @@ def start_recording(profile):
     beep(880)
     show_state("listening", profile)
     log(f"[{profile.name}] Recording... release {profile.hotkey_str()} to transcribe")
+    # The model may have been dropped after the idle timeout: start loading it
+    # now, while the user is still speaking, so a release only has to decode
+    # the audio instead of waiting for the load first.
+    if profile.model_obj is None:
+        threading.Thread(
+            target=preload_model_during_recording,
+            args=(profile,),
+            daemon=True,
+            name=f"preload-{profile.name}",
+        ).start()
 
 
 def stop_recording():
@@ -694,17 +827,46 @@ def stop_recording():
 def get_model(profile):
     with model_lock:
         if profile.model_obj is None:
-            from faster_whisper import WhisperModel
-
             t0 = time.time()
             show_state("loading", profile)
-            log(f"[{profile.name}] Loading model '{profile.model}'...")
-            profile.model_obj = WhisperModel(
-                profile.model, device=DEVICE, compute_type=COMPUTE
-            )
+            log(f"[{profile.name}] Loading model '{profile.model}' ({profile.engine})...")
+            if profile.engine == "nemotron":
+                # Imported lazily: torch/transformers take a while to import
+                # and are only needed for Nemotron profiles.
+                from nemotron_engine import NemotronModel
+
+                profile.model_obj = NemotronModel(
+                    profile.model, device=DEVICE, compute_type=COMPUTE, log=log
+                )
+            else:
+                from faster_whisper import WhisperModel
+
+                profile.model_obj = WhisperModel(
+                    profile.model, device=DEVICE, compute_type=COMPUTE
+                )
             log(f"[{profile.name}] Model loaded in {time.time()-t0:.1f}s")
         touch_model_use()
         return profile.model_obj
+
+
+def preload_model_during_recording(profile):
+    """Load the profile's model in the background as soon as the hotkey is held.
+
+    Recording runs in parallel, so the load overlaps with speaking instead of
+    delaying transcription after the release. ``get_model`` holds
+    ``model_lock`` for the whole load, so a release that arrives first simply
+    waits for this same in-flight load - it never starts a second one.
+    """
+    try:
+        get_model(profile)
+    except Exception as e:
+        log(f"[{profile.name}] Model preload failed: {e}")
+        logging.exception(f"[{profile.name}] Model preload failed")
+    finally:
+        # Loading set the pill to "Loading model…"; if the user is still
+        # holding the hotkey, give the pill back to the recording state.
+        if recording["active"] and recording["profile"] is profile:
+            show_state("listening", profile)
 
 
 def touch_model_use():
@@ -713,24 +875,26 @@ def touch_model_use():
 
 
 def unload_models():
-    """Drop every loaded Whisper model so the OS reclaims the RAM.
+    """Drop every loaded model so the OS/GPU reclaims the memory.
 
     In-flight transcriptions keep their own reference to the model object, so
     an unload during inference is safe - the memory is freed once it finishes.
     """
     unloaded = []
-    try:
-        import enhanced_features
-
-        if enhanced_features.unload_stream_model():
-            unloaded.append("streaming preview")
-    except Exception:
-        pass
     with model_lock:
         for p in profiles:
             if p.model_obj is not None:
                 p.model_obj = None
                 unloaded.append(p.model)
+        if unloaded:
+            # Nemotron models hold VRAM; torch only returns it on request.
+            torch = sys.modules.get("torch")
+            if torch is not None:
+                try:
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                except Exception:
+                    pass
     return unloaded
 
 
@@ -795,14 +959,22 @@ def transcribe_thread(profile, buf):
         )
         parts = [seg.text.strip() for seg in segments]
         text = apply_corrections(" ".join(parts).strip(), profile.corrections)
+        text = _reconcile_hotwords(text, profile)
         done.set()
+        duration = audio.size / cfg["samplerate"]
         log(
-            f"[{profile.name}] Transcribed {audio.size/cfg['samplerate']:.1f}s audio in {time.time()-t0:.1f}s"
+            f"[{profile.name}] Transcribed {duration:.1f}s audio in {time.time()-t0:.1f}s"
         )
         if not text:
             return
         last_text = text
         last_profile = profile
+        # Add-ons (e.g. history) see the final text before it is typed.
+        for fn in _text_listeners:
+            try:
+                fn(profile, text, duration)
+            except Exception as exc:
+                log(f"Transcription listener failed: {exc}")
         STATUS_QUEUE.put(("new_text",))
         show_state("typing", profile)
         type_text(text)
@@ -823,15 +995,88 @@ def transcribe_thread(profile, buf):
         show_state("ready")
 
 
+def _type_keystrokes(text):
+    """Type text as simulated keystrokes (fallback when pasting fails)."""
+    ctrl = pkb.Controller()
+    ctrl.typewrite(text, interval=0.005)
+
+
 def type_text(text):
+    global last_typed_text
     if cfg.get("type_newline"):
         text += "\n"
-    pyperclip.copy(text)
+    # Tracked before typing starts so the scratch hotkey can undo this
+    # dictation even if the paste only partially worked.
+    last_typed_text = text
+    old_clip = None
+    try:
+        old_clip = pyperclip.paste()
+    except Exception:
+        old_clip = None
+    try:
+        pyperclip.copy(text)
+        # Clipboard managers or policies can silently drop synthetic writes;
+        # detect that and fall back to typing instead of pasting nothing.
+        if pyperclip.paste() != text:
+            raise RuntimeError("clipboard did not accept the text")
+    except Exception as exc:
+        log(f"Clipboard paste failed ({exc}); falling back to simulated keystrokes")
+        try:
+            _type_keystrokes(text)
+        except Exception as exc2:
+            log(f"Keystroke fallback failed too: {exc2}")
+        return
     time.sleep(0.05)
+    try:
+        ctrl = pkb.Controller()
+        ctrl.press(pkb.Key.ctrl)
+        ctrl.tap("v")
+        ctrl.release(pkb.Key.ctrl)
+    except Exception as exc:
+        log(f"Ctrl+V failed ({exc}); trying simulated keystrokes")
+        try:
+            _type_keystrokes(text)
+        except Exception as exc2:
+            log(f"Keystroke fallback failed too: {exc2}")
+            return
+    # Restore the user's previous clipboard once the target app had a moment
+    # to read the paste - but never clobber a newer copy they made themselves.
+    if old_clip is not None:
+        def _restore():
+            time.sleep(0.4)
+            try:
+                if pyperclip.paste() == text:
+                    pyperclip.copy(old_clip)
+            except Exception:
+                pass
+
+        threading.Thread(target=_restore, daemon=True, name="clipboard-restore").start()
+
+
+def _send_backspaces(count):
     ctrl = pkb.Controller()
-    ctrl.press(pkb.Key.ctrl)
-    ctrl.tap("v")
-    ctrl.release(pkb.Key.ctrl)
+    # One tap at a time, with short breaks so the OS event queue and the
+    # target app can keep up even for long dictations.
+    for i in range(count):
+        ctrl.tap(pkb.Key.backspace)
+        if i % 20 == 19:
+            time.sleep(0.01)
+
+
+def scratch_last():
+    """Erase the most recently typed transcription with backspaces."""
+    global last_typed_text
+    if not last_typed_text:
+        log("Scratch: nothing typed to erase yet")
+        return
+    count = len(last_typed_text)
+    last_typed_text = None
+    log(f"Scratching last transcription ({count} characters)")
+    try:
+        _send_backspaces(count)
+        beep(220)
+    except Exception as exc:
+        log(f"Scratch failed: {exc}")
 
 
 def paste_last(icon=None, item=None):
@@ -851,6 +1096,7 @@ def paste_last(icon=None, item=None):
 def reload_hotwords(icon=None):
     for p in profiles:
         p.hotwords = load_hotwords(p.hotwords_file)
+        p.hotword_list = p.hotwords.split()
         p.corrections = load_corrections(p.corrections_file)
     log("Hotwords and corrections reloaded")
     if icon:
@@ -894,6 +1140,130 @@ def _open_audio_settings(icon=None, item=None):
     except Exception as exc:
         log(f"Could not enumerate audio devices: {exc}")
         return ""
+
+
+def run_doctor():
+    """--doctor: verify the setup and print a pass/fail summary, then exit.
+
+    Runs before the keyboard listener, audio stream, GUI, and any model load
+    start, so it is safe to use while another instance is dictating. Nothing
+    is downloaded and no model is loaded.
+    """
+    if sys.stdout is None:
+        logging.info("doctor: no console attached - run with python.exe")
+        sys.exit(2)
+    results = []
+
+    def check(name, ok, detail=""):
+        ok = bool(ok)
+        results.append(ok)
+        line = f"[{'PASS' if ok else 'FAIL'}] {name}" + (f" - {detail}" if detail else "")
+        print(line)
+        logging.info("doctor: %s", line)
+
+    print(f"{APP_NAME} doctor - device={DEVICE} compute={COMPUTE}")
+
+    # Config
+    try:
+        with open(os.path.join(BASE_DIR, "config.json"), "r", encoding="utf-8") as f:
+            file_cfg = json.load(f)
+        check("config.json parses", True, f"{len(file_cfg)} top-level keys")
+    except FileNotFoundError:
+        check("config.json parses", True, "missing - using built-in defaults")
+    except Exception as exc:
+        check("config.json parses", False, str(exc))
+
+    # Dependencies
+    for mod in ("faster_whisper", "sounddevice", "pynput", "pyperclip", "pystray"):
+        try:
+            __import__(mod)
+            check(f"{mod} importable", True)
+        except Exception as exc:
+            check(f"{mod} importable", False, str(exc))
+    try:
+        import torch
+
+        check(
+            "torch importable (nemotron engine)",
+            True,
+            f"{torch.__version__}, CUDA available: {bool(torch.cuda.is_available())}",
+        )
+    except Exception as exc:
+        check("torch importable (nemotron engine)", False, str(exc))
+
+    # Microphone
+    try:
+        inputs = [
+            d for d in sd.query_devices() if d.get("max_input_channels", 0) > 0
+        ]
+        check("microphone access", bool(inputs), f"{len(inputs)} input device(s)")
+        configured = cfg.get("audio_device")
+        if configured not in (None, ""):
+            names = [str(d.get("name", "")) for d in inputs]
+            ok = isinstance(configured, int) and configured < len(inputs) or any(
+                str(configured) == n or str(configured) in n for n in names
+            )
+            check("configured audio_device exists", ok, f"audio_device={configured!r}")
+    except Exception as exc:
+        check("microphone access", False, str(exc))
+
+    # Model caches (never downloads; only checks the HF cache directory)
+    for p in profiles:
+        cached = _models_cached({"profiles": [{"model": p.model}]})
+        check(
+            f"model cached: {p.model}",
+            cached,
+            "start once with internet access to download" if not cached else "",
+        )
+
+    # Hotkey conflicts across every registered global hotkey
+    hotkeys = [(f"profile {p.name}", p.hotkey) for p in profiles]
+    hotkeys.append(("paste last", PASTE_LAST_HOTKEY))
+    hotkeys.append(("scratch that", SCRATCH_HOTKEY))
+    hotkeys.append(("history", list(cfg.get("history_hotkey") or [])))
+    seen, dups = {}, []
+    for label, combo in hotkeys:
+        if not combo:
+            continue
+        key = tuple(sorted(combo))
+        if key in seen:
+            dups.append(f"{label} shares {'+'.join(sorted(combo))} with {seen[key]}")
+        else:
+            seen[key] = label
+    check("hotkey conflicts", not dups, "; ".join(dups) or "none")
+
+    # Hotword / correction files
+    raw_profiles = cfg.get("profiles") or []
+    for i, p in enumerate(profiles):
+        raw = raw_profiles[i] if i < len(raw_profiles) else {}
+        hw_path = p.hotwords_file if os.path.isabs(p.hotwords_file) else os.path.join(BASE_DIR, p.hotwords_file)
+        if os.path.exists(hw_path):
+            check(f"hotwords file ({p.name})", True, f"{len(p.hotword_list)} entries")
+        elif raw.get("hotwords_file"):
+            check(f"hotwords file ({p.name})", False, f"{p.hotwords_file} configured but missing")
+        else:
+            check(f"hotwords file ({p.name})", True, "not configured (optional)")
+        corr_path = p.corrections_file if os.path.isabs(p.corrections_file) else os.path.join(BASE_DIR, p.corrections_file)
+        check(
+            f"corrections file ({p.name})",
+            True,
+            f"{len(p.corrections)} rules"
+            + ("" if os.path.exists(corr_path) else " (file missing - no rules)"),
+        )
+
+    # Environment
+    try:
+        pyperclip.paste()
+        check("clipboard access", True)
+    except Exception as exc:
+        check("clipboard access", False, str(exc))
+    check("data folder writable", os.access(BASE_DIR, os.W_OK), BASE_DIR)
+
+    failed = results.count(False)
+    print(f"\n{len(results) - failed}/{len(results)} checks passed.")
+    if failed:
+        print("Fix the FAIL items above, then start the app as usual.")
+    sys.exit(1 if failed else 0)
 
 
 def main():
@@ -975,4 +1345,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if DOCTOR:
+        run_doctor()
+    else:
+        main()

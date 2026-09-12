@@ -9,6 +9,13 @@ pynput
 pyperclip
 Pillow
 
+# English Nemotron engine (EN profile). For GPU transcription install the
+# CUDA build of torch first - PyPI's Windows torch wheel is CPU-only:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu126
+torch
+transformers>=5.13
+librosa
+
 # Windows: CUDA math libraries (needed for GPU transcription on Windows)
 nvidia-cublas-cu12 ; sys_platform == "win32"
 nvidia-cudnn-cu12 ; sys_platform == "win32"

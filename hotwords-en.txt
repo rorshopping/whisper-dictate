@@ -50,3 +50,37 @@ dependency
 deadlock
 race condition
 SNiPs
+Herdr
+Becker-performant
+Becker-Codehub
+Becker ETL
+Pi coding agent
+OpenCode
+Z-Code
+DeepSeek
+GLM
+Muespark
+Nemotron
+Whisper
+DataSnipper
+DataF
+UpSlide
+ElevenLabs
+Kokoro
+Voicebox
+Playwright
+Tailscale
+Hetzner
+Remotion
+HyperFrames
+Blender
+SSH
+VAD
+JSONL
+CSV
+TikTok
+UGC
+iOS
+App Store
+Stripe
+TSM

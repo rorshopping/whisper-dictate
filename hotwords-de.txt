@@ -50,3 +50,29 @@ Camel Case
 Snake Case
 Groß- und Kleinschreibung
 SNiPs
+Herdr
+Becker-performant
+Becker ETL
+OpenCode
+GitHub
+Playwright
+Tailscale
+Hetzner
+Whisper
+Nemotron
+DeepSeek
+Excel
+PDF
+CSV
+SSH
+iOS
+TikTok
+UGC
+Masterarbeit
+Konzernlagebericht
+Lagebericht
+Eventualverbindlichkeiten
+Bürgschaften
+Handelsrecht
+Konzernabschluss
+Unsicherheit
