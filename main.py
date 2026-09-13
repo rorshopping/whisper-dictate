@@ -166,6 +166,7 @@ DEFAULTS = {
     "compute_type": "auto",
     "audio_device": None,
     "samplerate": 16000,
+    "capture_latency_s": 1.0,
     "beam_size": 5,
     "type_newline": True,
     "sound": True,
@@ -385,9 +386,26 @@ def _resolve_runtime():
 DEVICE, COMPUTE = _resolve_runtime()
 
 model_lock = threading.Lock()
-recording = {"active": False, "profile": None}
+recording = {
+    "active": False,
+    "profile": None,
+    "until": 0.0,      # epoch time: keep capturing through the post-release drain
+    "seq": 0,          # bumped on every start; aborts a stale drain finalizer
+    "started": 0.0,    # epoch time of hotkey press (for stall accounting)
+    "stopped": 0.0,    # epoch time of hotkey release
+    "overflow_logged": False,
+}
 frames = []
 frames_lock = threading.Lock()
+# Seconds to keep capturing after the hotkey is released, so audio still
+# sitting in the audio device's buffer reaches the transcript. With a big
+# device buffer (capture_latency_s) this also lets a post-release catch-up
+# burst deliver audio that was buffered during a callback stall.
+CAPTURE_TAIL_DRAIN_S = 0.5
+# Set while a recording waits for its drain; lets a fast re-press finalize the
+# previous dictation immediately instead of losing it.
+_pending = {"seq": None, "profile": None}
+_finish_lock = threading.Lock()
 pressed = set()
 last_text = None
 last_profile = None
@@ -405,6 +423,8 @@ FUZZY_HOTWORD_MIN_SCORE = int(cfg.get("fuzzy_hotword_min_score", 85))
 PASTE_BUTTON_LINGER = float(cfg.get("paste_button_linger", 10))
 # 0-255 pill opacity; it never intercepts clicks either way.
 PILL_ALPHA = int(cfg.get("pill_alpha", 150))
+# Seconds an error pill stays readable before the idle hide takes effect.
+ERROR_VISIBLE_S = float(cfg.get("error_visible_s", 6))
 # Minutes of inactivity after which loaded Whisper models are dropped from RAM
 # (0 disables unloading). CTranslate2 keeps freed memory resident, so without
 # this the process stays at its post-transcription high-water mark forever.
@@ -415,7 +435,6 @@ STATUS_QUEUE = queue.Queue()
 OVERLAY_ROOT = None
 
 STATE_COLORS = {
-    "ready": "#aeb4c9",
     "listening": "#ff4d4d",
     "transcribing": "#ffb340",
     "loading": "#7aa2ff",
@@ -453,14 +472,13 @@ def beep(freq, dur=90):
 
 def show_state(state, profile=None, detail=""):
     if state == "ready":
-        text = "Ready to transcribe    " + "    │    ".join(
-            f"{p.name} {p.hotkey_str()}" for p in profiles
-        )
-    else:
-        text = f"{profile.name} {profile.label(state)}"
-        if detail:
-            text += f" {detail}"
-    STATUS_QUEUE.put(("show", STATE_COLORS[state], text))
+        # Idle: show nothing. The hotkey reference lives in the tray menu.
+        STATUS_QUEUE.put(("hide",))
+        return
+    text = f"{profile.name} {profile.label(state)}"
+    if detail:
+        text += f" {detail}"
+    STATUS_QUEUE.put(("show", state, STATE_COLORS[state], text))
 
 
 class _POINT(ctypes.Structure):
@@ -537,6 +555,8 @@ class StatusOverlay:
         self.pb_until = 0.0  # epoch seconds the paste button stays visible
         self.pb_alpha = 1.0
         self.pb_alpha_shown = None
+        self.error_until = 0.0  # epoch seconds the error pill stays readable
+        self.hide_pending = False
         self.root.after(120, self._poll)
 
     @staticmethod
@@ -660,13 +680,23 @@ class StatusOverlay:
                     self._show(*item[1:])
                 elif item[0] == "new_text":
                     self._on_new_text()
-                else:
-                    self.root.withdraw()
+                else:  # "hide"
+                    self._hide()
         except queue.Empty:
             pass
+        if self.hide_pending and time.time() >= self.error_until:
+            self.hide_pending = False
+            self.root.withdraw()
         self._track_target()
         self._refresh_paste_button_pos()
         self.root.after(120, self._poll)
+
+    def _hide(self):
+        """Idle: withdraw the pill, but keep a fresh error readable a moment."""
+        if time.time() < self.error_until:
+            self.hide_pending = True
+        else:
+            self.root.withdraw()
 
     def _track_target(self):
         """Remember the last focused window that isn't one of our overlays."""
@@ -695,11 +725,13 @@ class StatusOverlay:
         except Exception:
             pass
 
-    def _show(self, color, text):
+    def _show(self, state, color, text):
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
         self.dot.config(fg=color)
         self.txt.config(text=text)
+        self.hide_pending = False
+        self.error_until = time.time() + ERROR_VISIBLE_S if state == "error" else 0.0
         self.root.update_idletasks()
         w = self.root.winfo_reqwidth()
         h = self.root.winfo_reqheight()
@@ -786,12 +818,28 @@ def on_release(key):
 
 
 def audio_callback(indata, frames_cnt, time_info, status):
-    if recording["active"]:
+    if status and recording["active"] and not recording["overflow_logged"]:
+        # PortAudio had to drop or replace audio because this process could not
+        # service the callback in time. Without this, the loss is invisible:
+        # the recording just starts a word or two into the sentence.
+        recording["overflow_logged"] = True
+        log(
+            f"[{recording['profile'].name}] Audio input overflow ({status}) - "
+            "audio may be missing from this recording"
+        )
+    # Keep appending through the post-release drain so audio that was still in
+    # the device's buffer when the hotkey went up is not thrown away.
+    if recording["active"] or time.time() < recording["until"]:
         with frames_lock:
             frames.append(indata[:, 0].copy())
 
 
 def start_recording(profile):
+    _flush_pending()
+    recording["seq"] += 1
+    recording["until"] = 0.0
+    recording["started"] = time.time()
+    recording["overflow_logged"] = False
     with frames_lock:
         frames.clear()
     recording["active"] = True
@@ -814,9 +862,59 @@ def start_recording(profile):
 def stop_recording():
     profile = recording["profile"]
     recording["active"] = False
+    recording["until"] = time.time() + CAPTURE_TAIL_DRAIN_S
+    recording["stopped"] = time.time()
+    _pending["seq"] = recording["seq"]
+    _pending["profile"] = profile
     beep(440)
-    with frames_lock:
-        buf = list(frames)
+    log(f"[{profile.name}] Recording stopped")
+    timer = threading.Timer(
+        CAPTURE_TAIL_DRAIN_S, _finish_recording, args=(recording["seq"], profile)
+    )
+    timer.daemon = True
+    timer.start()
+
+
+def _finish_recording(seq, profile):
+    with _finish_lock:
+        if _pending["seq"] != seq:
+            return  # already finalized early by a new hotkey press
+        _pending["seq"] = None
+        _pending["profile"] = None
+        with frames_lock:
+            buf = list(frames)
+            frames.clear()
+    _transcribe_captured(profile, buf)
+
+
+def _flush_pending():
+    """A new press during the drain window: finalize the last dictation now.
+
+    Without this, re-pressing within CAPTURE_TAIL_DRAIN_S of a release would
+    silently discard the previous dictation (the pending drain owns the frame
+    buffer that start_recording is about to clear).
+    """
+    with _finish_lock:
+        seq = _pending["seq"]
+        profile = _pending["profile"]
+        if seq is None:
+            return
+        _pending["seq"] = None
+        _pending["profile"] = None
+        with frames_lock:
+            buf = list(frames)
+            frames.clear()
+    _transcribe_captured(profile, buf)
+
+
+def _transcribe_captured(profile, buf):
+    hold = recording.get("stopped", 0) - recording.get("started", 0)
+    captured = sum(len(b) for b in buf) / cfg["samplerate"]
+    if hold > 0 and hold - captured > 0.15:
+        log(
+            f"[{profile.name}] WARNING: {hold - captured:.2f}s of the {hold:.2f}s "
+            "hold was lost to audio stalls (see overflow warnings above)"
+        )
     log(f"[{profile.name}] Recording stopped, {len(buf)} chunks captured")
     if not buf:
         show_state("ready")
@@ -1266,6 +1364,39 @@ def run_doctor():
     sys.exit(1 if failed else 0)
 
 
+def _hotkey_menu_items():
+    """Informational (disabled) menu lines listing every global hotkey.
+
+    The status pill only shows during activity now, so the tray menu is the
+    always-available reference for the keybinds.
+    """
+    items = [pystray.MenuItem("Hotkeys", None, enabled=False)]
+    for p in profiles:
+        items.append(
+            pystray.MenuItem(
+                lambda item, prof=p: f"   {prof.name} dictate  {prof.hotkey_str()}",
+                None,
+                enabled=False,
+            )
+        )
+    extras = [("Paste last", PASTE_LAST_HOTKEY), ("Scratch that", SCRATCH_HOTKEY)]
+    if cfg.get("history_enabled", True):
+        extras.append(("History", list(cfg.get("history_hotkey") or [])))
+    for label, keys in extras:
+        if keys:
+            items.append(
+                pystray.MenuItem(
+                    lambda item, label=label, keys=tuple(keys): "   "
+                    + label
+                    + "  "
+                    + " + ".join(_display_key(k) for k in keys),
+                    None,
+                    enabled=False,
+                )
+            )
+    return items
+
+
 def main():
     log(f"{APP_NAME} pid={os.getpid()} exe={sys.executable} - device={DEVICE} compute={COMPUTE}")
     if MODEL_IDLE_UNLOAD_S > 0:
@@ -1282,21 +1413,53 @@ def main():
         "dtype": "float32",
         "callback": audio_callback,
     }
+    # sounddevice's default maps to a ~26 ms device buffer: any callback stall
+    # longer than that (model load, CPU wake-up from idle, background scan)
+    # silently drops audio - the recorded clip then starts a word or two into
+    # the sentence. A generous buffer absorbs such stalls instead. Measured on
+    # WASAPI: the device buffers roughly the requested latency, so 1.0 s covers
+    # twice the worst stall seen in dictate.log (0.54 s). Setting 0 or null
+    # keeps the sounddevice default.
+    capture_latency = cfg.get("capture_latency_s")
+    if capture_latency:
+        stream_kwargs["latency"] = float(capture_latency)
     if input_device not in (None, ""):
         stream_kwargs["device"] = input_device
         log(f"Using configured microphone device: {input_device}")
 
-    try:
-        stream = sd.InputStream(**stream_kwargs)
-        stream.start()
-    except Exception as exc:
-        if input_device not in (None, ""):
-            log(f"Configured audio device failed ({exc}); retrying with system default")
-            stream_kwargs.pop("device", None)
-            stream = sd.InputStream(**stream_kwargs)
-            stream.start()
-        else:
-            raise
+    # Degrade gracefully: prefer the configured device and the generous
+    # latency, but fall back to defaults if a device rejects either.
+    stream = None
+    devices = [input_device, None] if input_device not in (None, "") else [None]
+    latencies = [stream_kwargs.get("latency"), None]
+    last_exc = None
+    for dev in devices:
+        for lat in latencies:
+            kw = dict(stream_kwargs)
+            if lat is not None:
+                kw["latency"] = lat
+            else:
+                kw.pop("latency", None)
+            if dev is not None:
+                kw["device"] = dev
+            else:
+                kw.pop("device", None)
+            try:
+                stream = sd.InputStream(**kw)
+                stream.start()
+                break
+            except Exception as exc:
+                last_exc = exc
+                log(f"Audio stream open failed (device={dev!r}, latency={lat!r}): {exc}")
+        if stream is not None:
+            break
+    if stream is None:
+        raise last_exc
+
+    # Shorter GIL hand-off quantum: the audio callback shares the interpreter
+    # with the Tk UI and the model-load threads, and every millisecond it waits
+    # for the GIL comes straight out of the device buffer's stall headroom.
+    sys.setswitchinterval(0.001)
 
     def preload():
         # Preload the default model; without the reset the pill would stay on
@@ -1320,11 +1483,7 @@ def main():
     listener.start()
 
     menu = pystray.Menu(
-        pystray.MenuItem(
-            lambda item: " · ".join(f"{p.name} {p.hotkey_str()}" for p in profiles),
-            None,
-            enabled=False,
-        ),
+        *_hotkey_menu_items(),
         pystray.MenuItem("Paste last transcription", paste_last),
         pystray.MenuItem("Show microphone devices", _open_audio_settings),
         pystray.MenuItem("Reload hotwords", reload_hotwords),

@@ -1,7 +1,7 @@
 .venv/
 __pycache__/
 *.pyc
-dictate.log
+dictate.log*
 .app.lock
 test.wav
 transcription-history.jsonl

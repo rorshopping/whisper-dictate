@@ -28,9 +28,12 @@ the current state and both hotkeys, so you never forget them.
   dictating, select the field afterwards and press `Ctrl+Shift+F12` (or use the
   tray menu "Paste last transcription") to insert the most recent recording
   there.
-- Subtle always-on status pill (listening / transcribing / typing / ready)
+- Status pill that only appears while something is happening (loading /
+  listening / transcribing / typing / error) and hides itself when idle —
+  every hotkey is listed in the tray menu instead
 - Auto-starts with Windows (Startup shortcut)
-- System tray icon with menu (reload hotwords, quit)
+- System tray icon with menu (hotkey reference, reload hotwords, unload
+  models, quit)
 
 ## Requirements
 
@@ -131,12 +134,23 @@ made the model echo prompt words instead of transcribing.
   click-through and translucent, so it never blocks what's behind it.
 - `pill_alpha` — status pill opacity, 0 (invisible) to 255 (solid).
   Default `150`.
+- `error_visible_s` — seconds an error pill stays readable before the idle
+  hide takes effect. Default `6`.
 - `model_idle_unload_minutes` — minutes of inactivity after which loaded
   models are dropped from RAM/VRAM to keep idle usage low. The model starts
   reloading from the local cache the moment a dictation hotkey is pressed
   (while you keep speaking), so releasing the hotkey only has to decode the
   audio. Default `10`; set to `0` to keep models loaded forever. The tray menu
   also has an "Unload models now" item.
+- `capture_latency_s` — size of the audio device's capture buffer, in seconds.
+  The sounddevice default works out to only ~26 ms, which silently drops the
+  first words of a dictation whenever the process stalls briefly (model
+  reload, CPU waking from idle, a background scan). The default `1.0` gives
+  the stream roughly a second of stall headroom at the cost of ~64 KB of RAM;
+  audio captured during a stall is delivered in a catch-up burst and kept.
+  Set to `0` to restore the sounddevice default. Overflow drops are always
+  logged to `dictate.log`, and a recording that came out shorter than its
+  hotkey hold logs a warning.
 
 ### Nemotron models
 
