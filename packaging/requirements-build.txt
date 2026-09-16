@@ -1,0 +1,17 @@
+# Deliberately independent of requirements.txt: CPU-only release engine.
+# Build with Python 3.11 or 3.12, on the target OS and architecture.
+# Resolve in an isolated environment; build-manifest.json records exact versions.
+# These compatibility ranges are NOT a hash-pinned reproducibility lockfile.
+pyinstaller>=6.16,<7
+pyinstaller-hooks-contrib>=2025.8
+faster-whisper>=1.2,<2
+sounddevice>=0.5,<1
+numpy>=1.26,<3
+pystray>=0.19,<1
+pynput>=1.8,<2
+pyperclip>=1.9,<2
+Pillow>=11,<13
+rapidfuzz>=3,<4
+pyobjc-framework-Cocoa>=11 ; sys_platform == "darwin"
+pyobjc-framework-Quartz>=11 ; sys_platform == "darwin"
+python-xlib>=0.33 ; sys_platform == "linux"

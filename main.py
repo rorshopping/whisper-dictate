@@ -18,7 +18,18 @@ import pystray
 import sounddevice as sd
 from PIL import Image, ImageDraw
 
+import app_paths
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Runtime state (config.json, dictate.log, the lock file, hotwords, corrections,
+# transcription history). In a checkout this is BASE_DIR, exactly as before; in
+# a packaged build it is the per-user data folder, seeded from the bundled
+# defaults on first run - see app_paths.
+DATA_DIR = app_paths.ensure_initialized()
+
+# The JSONL history file lives next to the config (see history_store).
+HISTORY_PATH = os.path.join(DATA_DIR, "transcription-history.jsonl")
 
 APP_NAME = "Whisper Dictate"
 
@@ -50,7 +61,7 @@ if HEADLESS:
 
 def _read_cfg():
     cfg = {}
-    path = os.path.join(BASE_DIR, "config.json")
+    path = os.path.join(DATA_DIR, "config.json")
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -116,13 +127,29 @@ class _RotatingLog(RotatingFileHandler):
 
 
 _log_handler = _RotatingLog(
-    os.path.join(BASE_DIR, "dictate.log"),
+    os.path.join(DATA_DIR, "dictate.log"),
     maxBytes=1_000_000,
     backupCount=2,
     encoding="utf-8",
 )
 _log_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
 logging.basicConfig(level=logging.INFO, handlers=[_log_handler])
+
+
+def log(msg):
+    """Log to the rotating file and, when a console exists, to stdout.
+
+    Defined before any module-level work (the profile list is built at import
+    time and can report a bad hotword/snippet file), so it must not depend on
+    anything created further down this module.
+    """
+    logging.info(msg)
+    try:
+        # sys.stdout is None under pythonw.exe with no console - never crash there.
+        if sys.stdout is not None:
+            print(f"[dictate] {msg}", flush=True)
+    except Exception:
+        pass
 
 # The single-instance guard is skipped for --doctor: the self-check must be
 # runnable while another instance is dictating.
@@ -143,7 +170,7 @@ if not DOCTOR:
                 pass
             sys.exit(0)
     else:
-        _LOCK_FILE = os.path.join(BASE_DIR, ".app.lock")
+        _LOCK_FILE = os.path.join(DATA_DIR, ".app.lock")
         try:
             _lf = os.open(_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             os.write(_lf, str(os.getpid()).encode())
@@ -174,6 +201,10 @@ DEFAULTS = {
     "scratch_hotkey": ["ctrl", "shift", "f13"],
     "fuzzy_hotwords": True,
     "fuzzy_hotword_min_score": 85,
+    # Spoken punctuation ("comma", "new line", ...) and `snippets-*.txt` voice
+    # expansions. Both rewrite ordinary words, so they stay off until asked for.
+    "spoken_punctuation": False,
+    "snippets_enabled": True,
     "paste_button_linger": 10,
     "model_idle_unload_minutes": 10,
     "profiles": [
@@ -184,6 +215,7 @@ DEFAULTS = {
             "model": "nvidia/nemotron-speech-streaming-en-0.6b",
             "language": "en",
             "hotwords_file": "hotwords-en.txt",
+            "snippets_file": "snippets-en.txt",
             "labels": {
                 "listening": "Listening…",
                 "transcribing": "Transcribing…",
@@ -199,6 +231,7 @@ DEFAULTS = {
             "model": "nvidia/nemotron-3.5-asr-streaming-0.6b",
             "language": "de",
             "hotwords_file": "hotwords-de.txt",
+            "snippets_file": "snippets-de.txt",
             "labels": {
                 "listening": "Hören…",
                 "transcribing": "Transkribieren…",
@@ -213,7 +246,7 @@ DEFAULTS = {
 
 def load_config():
     cfg = dict(DEFAULTS)
-    path = os.path.join(BASE_DIR, "config.json")
+    path = os.path.join(DATA_DIR, "config.json")
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
             cfg.update(json.load(f))
@@ -221,7 +254,7 @@ def load_config():
 
 
 def load_hotwords(path):
-    full = path if os.path.isabs(path) else os.path.join(BASE_DIR, path)
+    full = app_paths.resolve_data_file(path)
     if not os.path.exists(full):
         return ""
     words = []
@@ -237,7 +270,7 @@ def load_corrections(path):
     """Load deterministic wrong=>correct pairs. Missing/empty file -> []."""
     if not path:
         return []
-    full = path if os.path.isabs(path) else os.path.join(BASE_DIR, path)
+    full = app_paths.resolve_data_file(path)
     if not os.path.exists(full):
         return []
     pairs = []
@@ -253,6 +286,28 @@ def load_corrections(path):
     # Longest first so longer phrases win over their substrings.
     pairs.sort(key=lambda p: len(p[0]), reverse=True)
     return pairs
+
+
+def load_snippets(path):
+    """Load whole-utterance voice snippets ("trigger => expansion" lines)."""
+    if not path:
+        return {}
+    full = app_paths.resolve_data_file(path)
+    if not os.path.exists(full):
+        return {}
+    try:
+        from text_tools import parse_snippets
+
+        with open(full, "r", encoding="utf-8") as f:
+            lines = [
+                line.strip()
+                for line in f
+                if line.strip() and not line.strip().startswith("#")
+            ]
+        return parse_snippets(lines)
+    except Exception as exc:
+        log(f"Could not load snippets from {path}: {exc}")
+        return {}
 
 
 def apply_corrections(text, corrections):
@@ -317,6 +372,32 @@ def _reconcile_hotwords(text, profile):
         return text
 
 
+def _apply_text_tools(text, profile):
+    """Voice snippets and spoken punctuation, straight after the hotwords.
+
+    Runs last so a snippet or a spoken comma is never rewritten by the fuzzy
+    hotword pass, and the fuzzy pass never fights a snippet's own spelling.
+    Fail-safe: any problem here is logged and the text passes through.
+    """
+    if not text:
+        return text
+    snippets = profile.snippets if SNIPPETS_ENABLED else None
+    if not SPOKEN_PUNCTUATION and not snippets:
+        return text
+    try:
+        from text_tools import process_text
+
+        return process_text(
+            text,
+            language=profile.language,
+            spoken_punctuation=SPOKEN_PUNCTUATION,
+            snippets=snippets,
+        )
+    except Exception as exc:
+        log(f"[{profile.name}] Spoken punctuation/snippets skipped: {exc}")
+        return text
+
+
 def _display_key(k):
     return {
         "ctrl": "Ctrl",
@@ -345,6 +426,11 @@ class Profile:
         self.hotword_list = self.hotwords.split()
         self.corrections_file = p.get("corrections_file") or f"corrections-{self.language}.txt"
         self.corrections = load_corrections(self.corrections_file)
+        # Whole-utterance voice snippets ("insert signature" -> a stored block).
+        # A profile without the key gets the conventional filename, so dropping
+        # a snippets-<lang>.txt next to the config is enough to enable them.
+        self.snippets_file = p.get("snippets_file") or f"snippets-{self.language}.txt"
+        self.snippets = load_snippets(self.snippets_file)
         # No initial_prompt on purpose: Whisper's prompt slot means "already
         # transcribed text", not instructions. An instruction prefix (plus the
         # hotword list) made the model echo prompt words instead of
@@ -418,6 +504,9 @@ SCRATCH_HOTKEY = list(cfg.get("scratch_hotkey") or [])
 # Fuzzy hotword reconciliation after transcription (see hotword_fuzzy).
 FUZZY_HOTWORDS = bool(cfg.get("fuzzy_hotwords", True))
 FUZZY_HOTWORD_MIN_SCORE = int(cfg.get("fuzzy_hotword_min_score", 85))
+# Spoken punctuation ("comma" -> ",") and voice snippets (see text_tools).
+SPOKEN_PUNCTUATION = bool(cfg.get("spoken_punctuation", False))
+SNIPPETS_ENABLED = bool(cfg.get("snippets_enabled", True))
 # Seconds the paste button stays up after a fresh transcription before it
 # fades out (the Ctrl+Shift+F12 hotkey keeps working either way).
 PASTE_BUTTON_LINGER = float(cfg.get("paste_button_linger", 10))
@@ -441,16 +530,6 @@ STATE_COLORS = {
     "typing": "#4dd07f",
     "error": "#ff5555",
 }
-
-
-def log(msg):
-    logging.info(msg)
-    try:
-        # sys.stdout is None under pythonw.exe with no console - never crash there.
-        if sys.stdout is not None:
-            print(f"[dictate] {msg}", flush=True)
-    except Exception:
-        pass
 
 
 def beep(freq, dur=90):
@@ -1058,6 +1137,7 @@ def transcribe_thread(profile, buf):
         parts = [seg.text.strip() for seg in segments]
         text = apply_corrections(" ".join(parts).strip(), profile.corrections)
         text = _reconcile_hotwords(text, profile)
+        text = _apply_text_tools(text, profile)
         done.set()
         duration = audio.size / cfg["samplerate"]
         log(
@@ -1196,9 +1276,85 @@ def reload_hotwords(icon=None):
         p.hotwords = load_hotwords(p.hotwords_file)
         p.hotword_list = p.hotwords.split()
         p.corrections = load_corrections(p.corrections_file)
-    log("Hotwords and corrections reloaded")
+        p.snippets = load_snippets(p.snippets_file)
+    log("Hotwords, corrections and snippets reloaded")
     if icon:
-        icon.notify("Hotwords and corrections reloaded", APP_NAME)
+        icon.notify("Hotwords, corrections and snippets reloaded", APP_NAME)
+
+
+def _run_on_ui_thread(fn, why="UI action"):
+    """Run a Tk call on the main thread.
+
+    Hotkeys and the tray menu fire on other threads (pynput's listener, pystray's
+    backend) and Tk only tolerates widget calls from the thread that created the
+    root, so every window is opened through here.
+    """
+    root = OVERLAY_ROOT
+    if root is None:
+        log(f"{why} ignored: the UI is not up yet")
+        return
+    try:
+        root.after(0, fn)
+    except Exception as exc:
+        log(f"Could not schedule {why}: {exc}")
+
+
+def _ui_call(fn, why):
+    def wrapped():
+        try:
+            fn()
+        except Exception as exc:
+            log(f"{why} failed: {exc}")
+
+    _run_on_ui_thread(wrapped, why)
+
+
+def open_history_browser(icon=None, item=None):
+    """Tk history browser (search, copy, re-paste, delete)."""
+    import desktop_ui
+
+    _ui_call(
+        lambda: desktop_ui.open_history_window(
+            OVERLAY_ROOT, HISTORY_PATH, on_paste=type_text
+        ),
+        "Opening the history window",
+    )
+
+
+def open_settings(icon=None, item=None):
+    """Tk settings window for the config keys that matter day to day."""
+    import desktop_ui
+
+    _ui_call(
+        lambda: desktop_ui.open_settings_window(
+            OVERLAY_ROOT,
+            os.path.join(DATA_DIR, "config.json"),
+            on_saved=reload_settings,
+            on_reload_hotwords=reload_hotwords,
+        ),
+        "Opening the settings window",
+    )
+
+
+def reload_settings():
+    """Re-read config.json after the settings window saved it.
+
+    Only the keys that can change without restarting a model or the keyboard
+    listener are applied; the window says as much in its status line.
+    """
+    global SPOKEN_PUNCTUATION, SNIPPETS_ENABLED, PASTE_BUTTON_LINGER
+    try:
+        with open(os.path.join(DATA_DIR, "config.json"), "r", encoding="utf-8") as f:
+            fresh = json.load(f)
+    except Exception as exc:
+        log(f"Could not re-read config.json: {exc}")
+        return
+    cfg.update(fresh)
+    SPOKEN_PUNCTUATION = bool(cfg.get("spoken_punctuation", False))
+    SNIPPETS_ENABLED = bool(cfg.get("snippets_enabled", True))
+    PASTE_BUTTON_LINGER = float(cfg.get("paste_button_linger", 10))
+    reload_hotwords()
+    log("Settings reloaded from config.json")
 
 
 def make_icon_image():
@@ -1247,23 +1403,33 @@ def run_doctor():
     start, so it is safe to use while another instance is dictating. Nothing
     is downloaded and no model is loaded.
     """
-    if sys.stdout is None:
+    if sys.stdout is None and not app_paths.is_frozen():
         logging.info("doctor: no console attached - run with python.exe")
         sys.exit(2)
     results = []
+    result_rows = []
+
+    def _say(text):
+        """print() that tolerates a frozen windowed build (stdout is None)."""
+        try:
+            if sys.stdout is not None:
+                print(text)
+        except Exception:
+            pass
 
     def check(name, ok, detail=""):
         ok = bool(ok)
         results.append(ok)
+        result_rows.append((ok, name, detail))
         line = f"[{'PASS' if ok else 'FAIL'}] {name}" + (f" - {detail}" if detail else "")
-        print(line)
+        _say(line)
         logging.info("doctor: %s", line)
 
-    print(f"{APP_NAME} doctor - device={DEVICE} compute={COMPUTE}")
+    _say(f"{APP_NAME} doctor - device={DEVICE} compute={COMPUTE}")
 
     # Config
     try:
-        with open(os.path.join(BASE_DIR, "config.json"), "r", encoding="utf-8") as f:
+        with open(os.path.join(DATA_DIR, "config.json"), "r", encoding="utf-8") as f:
             file_cfg = json.load(f)
         check("config.json parses", True, f"{len(file_cfg)} top-level keys")
     except FileNotFoundError:
@@ -1334,20 +1500,37 @@ def run_doctor():
     raw_profiles = cfg.get("profiles") or []
     for i, p in enumerate(profiles):
         raw = raw_profiles[i] if i < len(raw_profiles) else {}
-        hw_path = p.hotwords_file if os.path.isabs(p.hotwords_file) else os.path.join(BASE_DIR, p.hotwords_file)
+        hw_path = p.hotwords_file if os.path.isabs(p.hotwords_file) else app_paths.resolve_data_file(p.hotwords_file)
         if os.path.exists(hw_path):
             check(f"hotwords file ({p.name})", True, f"{len(p.hotword_list)} entries")
         elif raw.get("hotwords_file"):
             check(f"hotwords file ({p.name})", False, f"{p.hotwords_file} configured but missing")
         else:
             check(f"hotwords file ({p.name})", True, "not configured (optional)")
-        corr_path = p.corrections_file if os.path.isabs(p.corrections_file) else os.path.join(BASE_DIR, p.corrections_file)
+        corr_path = p.corrections_file if os.path.isabs(p.corrections_file) else app_paths.resolve_data_file(p.corrections_file)
         check(
             f"corrections file ({p.name})",
             True,
             f"{len(p.corrections)} rules"
             + ("" if os.path.exists(corr_path) else " (file missing - no rules)"),
         )
+        snippets_path = (
+            p.snippets_file
+            if os.path.isabs(p.snippets_file)
+            else app_paths.resolve_data_file(p.snippets_file)
+        )
+        check(
+            f"snippets file ({p.name})",
+            True,
+            f"{len(p.snippets)} snippets"
+            + ("" if os.path.exists(snippets_path) else " (file missing - no snippets)"),
+        )
+    check(
+        "spoken punctuation",
+        True,
+        "enabled" if SPOKEN_PUNCTUATION else "off (say \"comma\" as a literal word)",
+    )
+    check("data folder", True, DATA_DIR)
 
     # Environment
     try:
@@ -1355,12 +1538,34 @@ def run_doctor():
         check("clipboard access", True)
     except Exception as exc:
         check("clipboard access", False, str(exc))
-    check("data folder writable", os.access(BASE_DIR, os.W_OK), BASE_DIR)
+    check("data folder writable", os.access(DATA_DIR, os.W_OK), DATA_DIR)
 
     failed = results.count(False)
-    print(f"\n{len(results) - failed}/{len(results)} checks passed.")
+    summary = f"\n{len(results) - failed}/{len(results)} checks passed."
+    _say(summary)
     if failed:
-        print("Fix the FAIL items above, then start the app as usual.")
+        _say("Fix the FAIL items above, then start the app as usual.")
+
+    # A frozen windowed build has no console: --doctor would report into the
+    # void, so write the same summary where the user (and the release scripts)
+    # can read it. Never fail the run over the report itself.
+    if app_paths.is_frozen():
+        try:
+            report = os.path.join(DATA_DIR, "doctor-report.txt")
+            with open(report, "w", encoding="utf-8") as f:
+                f.write(f"{APP_NAME} doctor - device={DEVICE} compute={COMPUTE}\n")
+                f.write(f"python={sys.version.split()[0]} frozen={app_paths.is_frozen()}\n")
+                f.write(f"data folder={DATA_DIR}\n\n")
+                for ok, name, detail in result_rows:
+                    f.write(
+                        f"[{'PASS' if ok else 'FAIL'}] {name}"
+                        + (f" - {detail}" if detail else "")
+                        + "\n"
+                    )
+                f.write(summary + "\n")
+            _say(f"Report written to {report}")
+        except Exception as exc:
+            _say(f"Could not write the doctor report: {exc}")
     sys.exit(1 if failed else 0)
 
 
@@ -1484,6 +1689,9 @@ def main():
 
     menu = pystray.Menu(
         *_hotkey_menu_items(),
+        pystray.MenuItem("Transcription history…", open_history_browser),
+        pystray.MenuItem("Settings…", open_settings),
+        pystray.Menu.SEPARATOR,
         pystray.MenuItem("Paste last transcription", paste_last),
         pystray.MenuItem("Show microphone devices", _open_audio_settings),
         pystray.MenuItem("Reload hotwords", reload_hotwords),

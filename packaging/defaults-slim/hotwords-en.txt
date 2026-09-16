@@ -1,0 +1,13 @@
+# Hotwords (English profile) - one term per line, "#" starts a comment.
+#
+# Hotwords do two things:
+#   1. bias the engine's vocabulary (faster-whisper profiles), and
+#   2. fuzzy-match near-misses after transcription (every engine), so a term the
+#      model hears as "backup performant" is rewritten to the spelling here.
+# Add your product names, project vocabulary, people, and acronyms.
+#
+# Examples:
+# BeckerHub
+# Whisper Dictate
+# PostgreSQL
+# Kubernetes

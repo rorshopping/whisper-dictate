@@ -17,6 +17,11 @@ Each piece exists because of a concrete macOS problem:
 * pynput's Controller (CGEventPost) and pyperclip are not safe to call from the
   worker threads main.py transcribes on, so all synthetic input is dispatched
   to the Tk main loop.
+* pynput's keyboard Listener takes its keyboard-layout snapshot with the Text
+  Input Source API from its own thread. macOS 26 asserts that this runs on the
+  main queue, so the process was killed with "Trace/BPT trap: 5" a few seconds
+  after start; the snapshot is therefore taken once on the main thread
+  (:func:`_patch_keycode_context`).
 * The always-on-top pill can be frontmost when the text is pasted and would
   swallow it, so the app that was focused when dictation started is
   re-activated first and Cmd+V is sent through System Events (macOS asks for
@@ -28,6 +33,7 @@ Only imported on Darwin (see launcher.py); on Windows none of this runs.
 """
 
 import atexit
+import contextlib
 import ctypes
 import ctypes.util
 import os
@@ -39,7 +45,13 @@ import time
 import tkinter
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LOCK_FILE = os.path.join(BASE_DIR, ".app.lock")
+# The single-instance lock lives wherever main.py keeps its runtime state: the
+# checkout when running from sources, the per-user data folder when packaged.
+# app_paths is deliberately dependency-free, so importing it here (before main)
+# is safe.
+import app_paths  # noqa: E402
+
+LOCK_FILE = os.path.join(app_paths.data_dir(), ".app.lock")
 
 _installed = False
 _main_thread = threading.main_thread()
@@ -455,6 +467,64 @@ def _warn_if_input_blocked():
         _log(f"could not show the input-blocked warning: {exc}")
 
 
+# --- keyboard layout snapshot ------------------------------------------------
+
+
+def _patch_keycode_context():
+    """Keep pynput's Text Input Source calls on the main thread.
+
+    pynput's keyboard Listener translates key codes through a keyboard-layout
+    snapshot taken by ``keycode_context()`` - a call into
+    ``TISCopyCurrentKeyboardInputSource`` / ``TISGetInputSourceProperty`` - and
+    it takes that snapshot from its own listener thread. macOS 26 asserts that
+    these Text Input Source APIs run on the main queue
+    (``islGetInputSourceListWithAdditions`` -> ``dispatch_assert_queue_fail``),
+    so the whole app died with an EXC_BREAKPOINT ("Trace/BPT trap: 5") a few
+    seconds after start.
+
+    The snapshot is just a (keyboard type, layout data) tuple, so it is taken
+    once on the main thread and reused wherever the main thread is not
+    available. Only the character view of a key would go stale after a
+    keyboard-layout switch mid-session - the hotkeys main.py matches are
+    physical keys and ``Key`` members - and the Controller's unicode map is
+    still built fresh, on the main thread, as before.
+    """
+    import pynput._util.darwin as darwin_util
+    import pynput.keyboard._darwin as darwin_keyboard
+
+    original = darwin_util.keycode_context
+    cache = {"context": None}
+    warned = {"off_main": False}
+
+    def _take():
+        with original() as context:
+            cache["context"] = context
+        return cache["context"]
+
+    @contextlib.contextmanager
+    def keycode_context():
+        if threading.current_thread() is _main_thread:
+            yield _take()
+            return
+        if cache["context"] is None:
+            # install() takes a snapshot on the main thread, so this is
+            # unreachable in practice; keep the upstream behaviour rather than
+            # inventing a broken layout.
+            if not warned["off_main"]:
+                warned["off_main"] = True
+                _log("macOS: keyboard layout snapshot requested off the main thread")
+            yield _take()
+            return
+        yield cache["context"]
+
+    # Listener._run uses the module global, get_unicode_to_keycode_map the
+    # original; patch both names.
+    darwin_util.keycode_context = keycode_context
+    darwin_keyboard.keycode_context = keycode_context
+
+    _take()  # install() runs on the main thread
+
+
 # --- installation ------------------------------------------------------------
 
 
@@ -479,6 +549,7 @@ def install():
     _apply("Cmd+V injection", lambda: _patch_controller(main_mod))
     _apply("scratch-that", lambda: _wrap_scratch_last(main_mod))
     _apply("paste target tracking", lambda: _wrap_start_recording(main_mod))
+    _apply("keyboard layout snapshot", _patch_keycode_context)
     _apply("Apple GPU default", lambda: _prefer_apple_gpu(main_mod))
     _apply("Apple GPU fallback", lambda: _wrap_get_model(main_mod))
     _log("macOS platform support active")

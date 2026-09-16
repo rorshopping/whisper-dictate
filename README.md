@@ -32,15 +32,33 @@ the current state and both hotkeys, so you never forget them.
 - Status pill that only appears while something is happening (loading /
   listening / transcribing / typing / error) and hides itself when idle —
   every hotkey is listed in the tray menu instead
+- **Transcription history window** (tray → "Transcription history…", or the
+  history hotkey): search every past dictation, copy it, re-paste it at the
+  cursor, delete single entries, export Markdown. Backed by the same JSONL file
+  that is written next to the config.
+- **Settings window** (tray → "Settings…"): edit the device, sound, capture
+  buffer, model idle-unload, fuzzy-hotword and text-tool options and the
+  per-profile name/hotkey/language, and open the hotword, correction and
+  snippet files — without hand-editing `config.json`.
+- **Spoken punctuation** (opt-in, `"spoken_punctuation": true`): say "comma",
+  "period", "new line" — or "komma", "punkt", "neue zeile" — and get the
+  character. Off by default because it rewrites ordinary words.
+- **Voice snippets** (`snippets-<lang>.txt`): say a trigger on its own
+  ("my signature") and a stored block is inserted verbatim. See the file for
+  the `trigger => text` format; line breaks are written as `\n`.
 - Auto-starts with Windows (Startup shortcut)
 - System tray icon with menu (hotkey reference, reload hotwords, unload
   models, quit)
+- **Standalone downloads** for Windows, macOS and Linux — no Python needed; see
+  `docs/RELEASE.md` for how each platform is built and signed
 
 ## Requirements
 
 - Python 3.12+ (3.12 recommended on Windows: 3.13+ may be too new for the CUDA
-  bridge, ctranslate2)
-- Windows or macOS — see the platform setup below
+  bridge, ctranslate2) — only for running from source; the release builds are
+  self-contained
+- Windows, macOS or Linux — see the platform setup below (Linux needs an X11
+  session; see `packaging/README-linux.md`)
 
 ## Install
 
@@ -103,6 +121,36 @@ directly skips the macOS support.
 ./run_mac.sh
 ```
 
+### Desktop app (.app bundle)
+
+`./build_macos_app.sh --install` builds a signed `Whisper Dictate.app` and
+copies it to `/Applications`. The bundle is a launcher for this checkout and
+its `.venv` — the same entry point as `run_mac.sh` — so rebuilding it after
+pulling changes (and re-running `install.py`) keeps the installed app current,
+and the Microphone / Accessibility grants stick to the signed app identity.
+Running from the bundle, macOS attributes those grants to the app itself, and
+the Microphone and Automation usage strings macOS requires are part of it.
+
+The app starts detached (the launcher exits right away). macOS 26 renders
+status items as FrontBoard scenes, and a process launched by LaunchServices as
+an app never has its scene granted - its menu-bar item stays parked off-screen.
+A detached process is not part of that launch context, so the icon shows
+whether the app is opened from Finder, the Dock or the shell. Starting it
+twice is harmless: `main.py`'s single-instance guard makes the second start
+exit. There is no Dock icon (the app is an agent / `LSUIElement` app): quit it
+from its menu-bar menu, "Quit".
+
+Start at login: `./build_macos_app.sh --login-item` writes a LaunchAgent
+(`~/Library/LaunchAgents/com.beckerhub.whisperdictate.plist`) that opens the
+installed app once per login - covered by the single-instance guard, so an app
+that is already running is unaffected. There is no `KeepAlive`: quitting from
+the menu bar stays quit until the next login.
+`./build_macos_app.sh --remove-login-item` turns it off again. The LaunchAgent
+logs to `~/Library/Logs/whisper-dictate-launch.log`; a log path inside
+`~/Documents` would make launchd fail the job with exit code 78 (EX_CONFIG),
+because that folder is TCC-protected and launchd opens the file before starting
+the job.
+
 macOS notes:
 - The first run downloads the models from Hugging Face (~2.4 GB for each of
   the English and German Nemotron models) — keep internet on for that one run.
@@ -147,9 +195,10 @@ made the model echo prompt words instead of transcribing.
 - `paste_last_hotkey` — global hotkey to re-insert the most recent
   transcription into the currently focused field. Default `["ctrl", "shift",
   "f12"]`; set to `[]` to disable (the tray menu item still works).
-- `history_hotkey` — global hotkey that opens the transcription history file
-  (`transcription-history.jsonl`, one JSON record per transcription: timestamp,
-  profile, language, model, duration, text). Default `["ctrl", "shift", "f11"]`;
+- `history_hotkey` — global hotkey that opens the transcription history window
+  (search, copy, re-paste at the cursor, delete, export Markdown). The data is
+  `transcription-history.jsonl`, one JSON record per transcription: timestamp,
+  profile, language, model, duration, text. Default `["ctrl", "shift", "f11"]`;
   `history_enabled` (default `true`) turns the add-on off entirely.
 - `scratch_hotkey` — global hotkey that erases the most recent dictation by
   sending backspaces for the exact number of typed characters. Default
@@ -186,6 +235,35 @@ made the model echo prompt words instead of transcribing.
   Set to `0` to restore the sounddevice default. Overflow drops are always
   logged to `dictate.log`, and a recording that came out shorter than its
   hotkey hold logs a warning.
+- `spoken_punctuation` — say "comma", "period", "new line", "question mark"
+  (or "komma", "punkt", "neue zeile", "fragezeichen") and the real character is
+  inserted, with the next word capitalized after a sentence mark. Off by
+  default: it rewrites ordinary words, so enable it only if you do not dictate
+  sentences that contain those words literally. English and German tables live
+  in `text_tools.py`.
+- `snippets_enabled` — whole-utterance voice snippets (default `true`). A
+  trigger said on its own expands to a stored block, e.g. "my signature" →
+  an address block. Define them in `snippets-<language>.txt`, one
+  `trigger => text` rule per line; `\n` becomes a line break. Matching is
+  exact (case-insensitive, optional trailing full stop), so a snippet can never
+  fire in the middle of a sentence, and its content is inserted verbatim.
+
+### Data folder
+
+Runtime state (`config.json`, `dictate.log`, `.app.lock`,
+`transcription-history.jsonl`, the hotword/correction/snippet files) lives next
+to the sources when you run from a checkout, and in the per-user data folder in
+a packaged build:
+
+| Platform | Data folder |
+|---|---|
+| Windows | `%APPDATA%\Whisper Dictate` |
+| macOS | `~/Library/Application Support/Whisper Dictate` |
+| Linux | `~/.local/share/whisper-dictate` |
+
+A packaged build seeds that folder from the bundled `defaults/` on first run and
+never overwrites an existing file, so an upgrade keeps your config, hotwords,
+corrections, snippets and history.
 
 ### Nemotron models
 

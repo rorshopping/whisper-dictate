@@ -16,9 +16,10 @@ import os
 import threading
 from datetime import datetime, timezone
 
+import history_store
 import main as app
 
-HISTORY_FILE = os.path.join(app.BASE_DIR, "transcription-history.jsonl")
+HISTORY_FILE = app.HISTORY_PATH
 _HISTORY_LOCK = threading.Lock()
 
 
@@ -34,23 +35,34 @@ def save_history(profile, text, duration_s):
     """Text listener: append a finished transcription to the JSONL history."""
     if not _history_enabled() or not text:
         return
-    record = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "profile": profile.name,
-        "language": profile.language,
-        "model": profile.model,
-        "duration_seconds": round(float(duration_s), 2),
-        "text": text,
-    }
     try:
         with _HISTORY_LOCK:
-            with open(HISTORY_FILE, "a", encoding="utf-8") as f:
-                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+            history_store.append_record(
+                HISTORY_FILE,
+                profile_name=profile.name,
+                language=profile.language,
+                model=profile.model,
+                text=text,
+                duration_s=duration_s,
+            )
     except Exception as exc:
         app.log(f"History write failed: {exc}")
 
 
 def open_history():
+    """Open the Tk history browser, falling back to the raw file.
+
+    The browser is the useful view (search, copy, re-paste, delete); opening
+    the JSONL in an editor stays as the fallback for a headless or broken UI.
+    """
+    browser = getattr(app, "open_history_browser", None)
+    if browser is not None:
+        try:
+            browser()
+            app.log("Opened transcription history browser")
+            return
+        except Exception as exc:
+            app.log(f"History browser unavailable ({exc}); opening the file")
     if not os.path.exists(HISTORY_FILE):
         with open(HISTORY_FILE, "a", encoding="utf-8"):
             pass

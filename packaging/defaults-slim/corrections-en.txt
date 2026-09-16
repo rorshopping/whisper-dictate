@@ -1,0 +1,11 @@
+# Deterministic corrections (English profile) - one rule per line:  wrong => correct
+#
+# Applied case-insensitively to every final transcription, on word boundaries,
+# longest phrase first. Use it for terms the model reliably gets wrong where the
+# fuzzy hotword pass (hotwords-en.txt) is not exact enough.
+#
+# Examples (remove the leading "#" to activate a rule):
+# github => GitHub
+# postgres => PostgreSQL
+# pie coding agent => pi coding agent
+# reppo => repo

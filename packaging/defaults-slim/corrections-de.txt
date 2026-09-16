@@ -1,0 +1,13 @@
+# Deterministic corrections (German profile / Deutsches Profil)
+#
+# One rule per line:  wrong => correct
+#
+# Applied to every transcription of this profile, case-insensitively and on
+# word boundaries, longest phrase first. Use it for terms the model reliably
+# gets wrong (product names, project vocabulary) where the fuzzy hotword pass
+# in hotwords-de.txt is not exact enough.
+#
+# Beispiele (fuehrende "#" entfernen, um eine Regel zu aktivieren):
+# Becker Hub => BeckerHub
+# Daten bank => Datenbank
+# postgres => PostgreSQL

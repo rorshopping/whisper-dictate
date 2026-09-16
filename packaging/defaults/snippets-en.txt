@@ -1,0 +1,16 @@
+# Voice snippets (English profile)
+#
+# One rule per line:  spoken trigger => text that gets inserted
+#
+# The trigger must be the *whole* utterance - say it on its own, not inside a
+# sentence - and it is matched case-insensitively, with or without a trailing
+# full stop. The replacement is inserted exactly as written here: to get a line
+# break inside a snippet, write it as \n on the same line.
+#
+# Enabled with "snippets_enabled": true in config.json (default).
+#
+# Examples (remove the leading "#" to activate one):
+# my signature => Best regards\nRichard
+# insert address => Musterstrasse 1\n12345 Berlin
+# insert date => 2026-09-16
+# meeting link => https://meet.example.com/room

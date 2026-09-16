@@ -9,11 +9,19 @@ pynput
 pyperclip
 Pillow
 
-# English Nemotron engine (EN profile). For GPU transcription install the
-# CUDA build of torch first - PyPI's Windows torch wheel is CPU-only:
+# English + German Nemotron streaming engine (default profiles). Needs torch
+# and transformers. For GPU transcription install the CUDA build of torch first
+# - PyPI's Windows torch wheel is CPU-only:
 #   pip install torch --index-url https://download.pytorch.org/whl/cu126
+#
+# A faster-whisper-only install can skip both (the app falls back to the
+# faster-whisper engine; the frozen slim build is built that way):
+#   pip install -r requirements.txt
 torch
 transformers>=5.13
+# Required by transformers' NemotronAsrStreamingFeatureExtractor (mel
+# spectrograms). Nothing in this repository imports it directly - do not remove
+# it because a grep comes up empty; the frozen build fails at model load.
 librosa
 
 # Windows: CUDA math libraries (needed for GPU transcription on Windows)

@@ -6,3 +6,9 @@ dictate.log*
 .app.lock
 test.wav
 transcription-history.jsonl
+dist/
+.app-launch.log
+
+# Packaging artifacts (PyInstaller work dir and frozen output)
+build/
+doctor-report.txt

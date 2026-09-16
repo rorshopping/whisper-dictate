@@ -4,24 +4,41 @@
   "compute_type": "auto",
   "audio_device": null,
   "samplerate": 16000,
+  "capture_latency_s": 1.0,
   "beam_size": 5,
   "type_newline": true,
   "sound": true,
   "history_enabled": true,
-  "history_hotkey": ["ctrl", "shift", "f11"],
-  "scratch_hotkey": ["ctrl", "shift", "f13"],
+  "history_hotkey": [
+    "ctrl",
+    "shift",
+    "f11"
+  ],
+  "scratch_hotkey": [
+    "ctrl",
+    "shift",
+    "f13"
+  ],
   "fuzzy_hotwords": true,
   "fuzzy_hotword_min_score": 85,
   "spoken_punctuation": false,
   "snippets_enabled": true,
   "model_idle_unload_minutes": 10,
-  "paste_last_hotkey": ["ctrl", "shift", "f12"],
+  "paste_last_hotkey": [
+    "ctrl",
+    "shift",
+    "f12"
+  ],
   "profiles": [
     {
       "name": "EN",
-      "hotkey": ["ctrl", "shift", "space"],
-      "engine": "nemotron",
-      "model": "nvidia/nemotron-speech-streaming-en-0.6b",
+      "hotkey": [
+        "ctrl",
+        "shift",
+        "space"
+      ],
+      "engine": "faster-whisper",
+      "model": "small.en",
       "language": "en",
       "hotwords_file": "hotwords-en.txt",
       "corrections_file": "corrections-en.txt",
@@ -36,11 +53,16 @@
     },
     {
       "name": "DE",
-      "hotkey": ["ctrl", "alt", "space"],
-      "engine": "nemotron",
-      "model": "nvidia/nemotron-3.5-asr-streaming-0.6b",
+      "hotkey": [
+        "ctrl",
+        "alt",
+        "space"
+      ],
+      "engine": "faster-whisper",
+      "model": "small",
       "language": "de",
       "hotwords_file": "hotwords-de.txt",
+      "corrections_file": "corrections-de.txt",
       "snippets_file": "snippets-de.txt",
       "labels": {
         "listening": "Hören…",

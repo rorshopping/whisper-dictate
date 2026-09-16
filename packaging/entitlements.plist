@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements for the standalone macOS bundle.
+
+  Hardened Runtime (required for notarization) turns off a few things a frozen
+  Python app needs:
+
+  * com.apple.security.device.audio-input - the microphone. Without it a
+    hardened, notarized build is denied the mic no matter what the user grants.
+  * com.apple.security.cs.allow-unsigned-executable-memory and
+    com.apple.security.cs.allow-jit - torch/numpy generate executable code at
+    runtime (JIT and dispatch stubs); a hardened build without these crashes on
+    the first tensor operation.
+  * com.apple.security.cs.disable-library-validation - torch and
+    ctranslate2 dlopen dylibs that are not signed by this team ID. Validation
+    would refuse them.
+
+  The app is an agent (LSUIElement) and talks to System Events for the Cmd+V
+  paste; that is a user-consented Automation permission, not an entitlement.
+-->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

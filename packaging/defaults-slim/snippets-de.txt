@@ -1,0 +1,15 @@
+# Voice snippets (German profile / Deutsches Profil)
+#
+# One rule per line:  spoken trigger => text that gets inserted
+#
+# The trigger must be the *whole* utterance - say it on its own, not inside a
+# sentence - and it is matched case-insensitively, with or without a trailing
+# full stop. The replacement is inserted exactly as written here: to get a line
+# break inside a snippet, write it as \n on the same line.
+#
+# Enabled with "snippets_enabled": true in config.json (default).
+#
+# Beispiele (fuehrende "#" entfernen, um eine Regel zu aktivieren):
+# meine signatur => Viele Gruesse\nRichard
+# adresse einfuegen => Musterstrasse 1\n12345 Berlin
+# datum einfuegen => 2026-09-16

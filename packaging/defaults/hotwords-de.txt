@@ -1,0 +1,8 @@
+# Hotwords (German profile / Deutsches Profil)
+#
+# One term per line, "#" starts a comment - see hotwords-en.txt for details.
+#
+# Beispiele:
+# BeckerHub
+# Datenbank
+# Postgres

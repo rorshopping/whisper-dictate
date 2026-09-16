@@ -4,6 +4,7 @@
   "compute_type": "auto",
   "audio_device": null,
   "samplerate": 16000,
+  "capture_latency_s": 1.0,
   "beam_size": 5,
   "type_newline": true,
   "sound": true,
@@ -41,6 +42,7 @@
       "model": "nvidia/nemotron-3.5-asr-streaming-0.6b",
       "language": "de",
       "hotwords_file": "hotwords-de.txt",
+      "corrections_file": "corrections-de.txt",
       "snippets_file": "snippets-de.txt",
       "labels": {
         "listening": "Hören…",
