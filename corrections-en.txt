@@ -48,3 +48,4 @@ trial bounds => trial balances
 lagerbrecht => Konzernlagebericht
 recall minus app => recall-app
 sub agent => sub agents
+ECOSU => accuracy
