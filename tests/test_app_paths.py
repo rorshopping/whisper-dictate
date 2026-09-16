@@ -46,10 +46,13 @@ class SeedingTests(unittest.TestCase):
         )
         if not os.path.isdir(defaults):
             self.skipTest("packaging/defaults not present")
+        # "._name" is macOS AppleDouble metadata, not content. It appears when a
+        # directory is copied to a non-HFS filesystem, and it must neither be
+        # bundled nor counted as a default the app has to seed.
         present = {
             name
             for name in os.listdir(defaults)
-            if name.endswith((".txt", ".json"))
+            if name.endswith((".txt", ".json")) and not name.startswith("._")
         }
         missing = present - set(app_paths.DEFAULT_FILES)
         self.assertEqual(

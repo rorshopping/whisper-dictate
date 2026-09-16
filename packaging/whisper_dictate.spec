@@ -34,7 +34,19 @@ BASE_DIR = os.path.dirname(os.path.abspath(SPECPATH))
 PACKAGING = os.path.join(BASE_DIR, "packaging")
 ICON = os.path.join(BASE_DIR, "icon.ico")
 
-datas = [(os.path.join(PACKAGING, "defaults"), "defaults")]
+# The defaults the app seeds into the per-user data folder on first run. Only
+# regular files are listed: an "._name" AppleDouble file (macOS metadata that a
+# copy to a non-HFS filesystem creates) must never end up inside the bundle.
+DEFAULTS_SRC = os.path.join(PACKAGING, "defaults")
+_defaults_files = sorted(
+    name
+    for name in os.listdir(DEFAULTS_SRC)
+    if not name.startswith("._") and os.path.isfile(os.path.join(DEFAULTS_SRC, name))
+)
+if not _defaults_files:
+    raise SystemExit(f"[spec] no defaults found in {DEFAULTS_SRC}")
+datas = [(os.path.join(DEFAULTS_SRC, name), "defaults") for name in _defaults_files]
+print(f"[spec] bundling {len(_defaults_files)} default file(s): {', '.join(_defaults_files)}")
 binaries = []
 hiddenimports = [
     # The app's own add-on modules are imported by name at runtime.
@@ -136,7 +148,12 @@ if SLIM:
             "[spec] WHISPER_DICTATE_SLIM=1 needs packaging/defaults-slim/ "
             "with faster-whisper profiles"
         )
-    datas = [(os.path.join(PACKAGING, "defaults-slim"), "defaults")]
+    datas = [
+        (os.path.join(PACKAGING, "defaults-slim", name), "defaults")
+        for name in sorted(os.listdir(os.path.join(PACKAGING, "defaults-slim")))
+        if not name.startswith("._")
+        and os.path.isfile(os.path.join(PACKAGING, "defaults-slim", name))
+    ]
     print("[spec] SLIM build: torch/transformers excluded, faster-whisper defaults")
 
 block_cipher = None

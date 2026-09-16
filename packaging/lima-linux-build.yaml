@@ -1,0 +1,26 @@
+# Lima definition for the Linux build host.
+#
+# Deliberately Debian 12 (bookworm): a frozen PyInstaller bundle links the build
+# host's glibc, so building on an older base produces an artifact that also runs
+# on newer distributions. Building on the newest release does not work the other
+# way round.
+#
+# x86_64 under QEMU on Apple Silicon: slower than the host, but the artifact
+# must be x86_64 to match what most Linux desktop users run, and the alternative
+# (an arm64 build) would be useful to far fewer people.
+#
+#   limactl start --name=wdlinux packaging/lima-linux-build.yaml
+#   limactl shell wdlinux
+vmType: qemu
+arch: x86_64
+images:
+  - location: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2"
+    arch: x86_64
+cpus: 4
+memory: "8GiB"
+disk: "30GiB"
+# No host mounts: the sources are copied in with `limactl copy` so a stale mount
+# can never make the build read a macOS path by accident.
+mounts: []
+ssh:
+  localPort: 0

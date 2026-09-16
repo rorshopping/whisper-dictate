@@ -15,9 +15,9 @@ no word limit, no audio leaving the machine.
 **These previews are not code-signed.** macOS needs a right-click → Open on the
 first launch, Windows shows SmartScreen's "More info → Run anyway". Signing
 requires a Developer ID certificate (macOS) and a trusted Authenticode
-certificate (Windows), neither of which is available yet — see
-`docs/RELEASE.md`. The `.sha256` next to each artifact is the checksum of what
-was uploaded.
+certificate (Windows), neither of which exists yet — see
+`docs/BUILD_MACHINES.md` for exactly what is missing and how to add it. The
+`.sha256` next to each artifact is the checksum of what was uploaded.
 
 ## What is new in this release
 
