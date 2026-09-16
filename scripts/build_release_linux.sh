@@ -63,6 +63,56 @@ if [ "${#MISSING[@]}" -gt 0 ]; then
     echo "    (the bundle will still build; these are runtime host libraries)"
 fi
 
+# On Linux, PyPI's default torch wheel bundles the whole CUDA runtime (~3 GB of
+# nvidia-* packages) because that is what most Linux users want. Shipping it in
+# a dictation app multiplies the download for nothing: the models are 0.6B
+# parameters and load in about two seconds on a CPU. Report it instead of
+# silently producing a multi-gigabyte artifact.
+if "$VENV_PY" -c "import torch" 2>/dev/null; then
+    "$VENV_PY" - <<'PY' || true
+import os
+import shutil
+import sys
+
+import torch
+
+site = os.path.dirname(os.path.dirname(torch.__file__))
+nvidia = os.path.join(site, "nvidia")
+nvidia_mb = 0
+if os.path.isdir(nvidia):
+    total = 0
+    for root, _dirs, files in os.walk(nvidia):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
+    nvidia_mb = total // (1024 * 1024)
+
+cuda = bool(getattr(torch.version, "cuda", None))
+if cuda or nvidia_mb > 500:
+    print(
+        "WARNING: this virtualenv has a CUDA build of torch "
+        f"({torch.__version__}, CUDA {torch.version.cuda}"
+        + (f", {nvidia_mb} MB of nvidia-* packages" if nvidia_mb else "")
+        + ").",
+        file=sys.stderr,
+    )
+    print(
+        "         The bundle will carry several GB of GPU libraries. For a\n"
+        "         downloadable artifact, install the CPU wheel first:\n"
+        "\n"
+        "             .venv/bin/pip uninstall -y torch\n"
+        "             .venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch\n"
+        "\n"
+        "         A user with an NVIDIA GPU can install the CUDA wheel afterwards;\n"
+        "         the app reports the CPU fallback in its log rather than failing\n"
+        "         (see docs/BUILD_MACHINES.md).",
+        file=sys.stderr,
+    )
+PY
+fi
+
 if ! "$VENV_PY" -c "import PyInstaller" 2>/dev/null; then
     echo "==> Installing PyInstaller"
     "$VENV_PY" -m pip install --quiet "pyinstaller>=6.16"
