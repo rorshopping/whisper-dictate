@@ -82,10 +82,13 @@ done
 echo "==> Verifying anonymous download (a private repo would 404 here)"
 URL="$(gh api "repos/$RELEASES_REPO/releases/tags/$TAG" --jq '.assets[0].browser_download_url' 2>/dev/null || true)"
 if [ -n "$URL" ]; then
-    code="$(curl -s -o /dev/null -w "%{http_code}" -I "$URL")"
+    # Follow redirects: a release asset answers 302 to a CDN, so the first
+    # status code says nothing about whether the file is reachable. Request the
+    # first kilobyte only - these artifacts are hundreds of megabytes.
+    code="$(curl -sL -o /dev/null -w "%{http_code}" --max-time 120 -r 0-1000 "$URL")"
     echo "    $code  $URL"
-    if [ "$code" != "200" ]; then
-        echo "ERROR: the asset is not publicly downloadable ($code)." >&2
+    if [ "$code" != "200" ] && [ "$code" != "206" ]; then
+        echo "ERROR: the asset is not publicly downloadable (HTTP $code)." >&2
         exit 4
     fi
 fi
