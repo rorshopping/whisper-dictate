@@ -1,3 +1,4 @@
+import atexit
 import ctypes
 import glob
 import json
@@ -144,10 +145,60 @@ if not DOCTOR:
             sys.exit(0)
     else:
         _LOCK_FILE = os.path.join(BASE_DIR, ".app.lock")
-        try:
-            _lf = os.open(_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(_lf, str(os.getpid()).encode())
-        except FileExistsError:
+
+        def _remove_lock():
+            try:
+                os.remove(_LOCK_FILE)
+            except OSError:
+                pass
+
+        def _lock_is_stale():
+            """True when .app.lock was left behind by a process that is gone.
+
+            macOS/Linux have no kernel mutex, so a force-quit (or a crash)
+            leaves the file behind and would otherwise block every later start.
+            """
+            try:
+                age = time.time() - os.path.getmtime(_LOCK_FILE)
+            except OSError:
+                return False
+            try:
+                with open(_LOCK_FILE, "r", encoding="utf-8") as f:
+                    pid = int((f.read() or "0").strip())
+            except (OSError, ValueError):
+                # Garbled content: a crash during creation. Only reclaim once
+                # it is clearly not from a start happening right now.
+                return age > 10.0
+            if pid <= 0:
+                return age > 10.0
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return True
+            except OSError:
+                return False
+            return False
+
+        # The lock file must be removed on exit or every later start claims
+        # another instance is running.
+        atexit.register(_remove_lock)
+        _lf = None
+        for attempt in range(2):
+            try:
+                _lf = os.open(_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(_lf, str(os.getpid()).encode())
+                os.close(_lf)
+                break
+            except FileExistsError:
+                if attempt == 0 and _lock_is_stale():
+                    logging.info("Reclaiming stale .app.lock from a previous run")
+                    try:
+                        os.remove(_LOCK_FILE)
+                    except OSError:
+                        break  # cannot remove: treat it as a live instance
+                    continue
+                break
+        if _lf is None:
             logging.info(
                 "Another Whisper Dictate instance is already running - exiting."
             )
@@ -410,6 +461,7 @@ pressed = set()
 last_text = None
 last_profile = None
 last_typed_text = None  # exact string last typed, for the scratch hotkey
+last_target_app = None  # macOS: the app focused when dictation started
 paste_last_fired = False
 scratch_fired = False
 PASTE_LAST_HOTKEY = list(cfg.get("paste_last_hotkey") or [])
@@ -518,6 +570,82 @@ def _set_foreground(hwnd):
         time.sleep(0.03)
     except Exception:
         pass
+
+
+def _mac_input_trusted():
+    """Whether the current process may monitor global input (macOS only).
+
+    Returns None when the check itself can't be performed.
+    """
+    if sys.platform != "darwin":
+        return True
+    try:
+        import ctypes.util
+
+        path = ctypes.util.find_library("ApplicationServices")
+        if not path:
+            return None
+        lib = ctypes.CDLL(path)
+        f = lib.AXIsProcessTrusted
+        f.restype = ctypes.c_bool
+        return bool(f())
+    except Exception:
+        try:
+            from ApplicationServices import AXIsProcessTrusted
+
+            return bool(AXIsProcessTrusted())
+        except Exception:
+            return None
+
+
+def _mac_frontmost_app():
+    """Return the frontmost NSApplication at call time (macOS only)."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        from AppKit import NSWorkspace
+
+        return NSWorkspace.sharedWorkspace().frontmostApplication()
+    except Exception:
+        return None
+
+
+def _mac_is_own_app(app):
+    """True if the NSApplication is this process (macOS only)."""
+    try:
+        return app is not None and app.processIdentifier() == os.getpid()
+    except Exception:
+        return False
+
+
+def _mac_activate_app(app):
+    """Bring the given NSApplication to the foreground (macOS only)."""
+    if app is None or _mac_is_own_app(app):
+        return
+    try:
+        # NSApplicationActivateIgnoringOtherApps = 1: raise even if another
+        # app is active. Needed so our paste lands in the user's text field
+        # rather than our own overlay.
+        app.activateWithOptions_(1)
+        time.sleep(0.05)
+    except Exception:
+        pass
+
+
+def _mac_paste():
+    """Inject Cmd+V into the frontmost application via System Events."""
+    import subprocess
+
+    script = 'tell application "System Events" to keystroke "v" using {command down}'
+    try:
+        subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception as e:
+        log(f"macOS paste failed: {e}")
 
 
 class StatusOverlay:
@@ -680,6 +808,14 @@ class StatusOverlay:
                     self._show(*item[1:])
                 elif item[0] == "new_text":
                     self._on_new_text()
+                elif item[0] == "call":
+                    # Synthetic input (paste, backspaces) must run on this Tk
+                    # main thread on macOS: CGEventPost from a worker thread
+                    # can segfault.
+                    try:
+                        item[1]()
+                    except Exception as exc:
+                        log(f"Deferred action failed: {exc}")
                 else:  # "hide"
                     self._hide()
         except queue.Empty:
@@ -844,6 +980,15 @@ def start_recording(profile):
         frames.clear()
     recording["active"] = True
     recording["profile"] = profile
+    if sys.platform == "darwin":
+        # Remember the app that has focus while the user speaks: our Tk
+        # overlay can become frontmost on macOS, and the paste must still land
+        # in the user's text field. Starting while the pill is frontmost keeps
+        # the last real target instead of overwriting it with ourselves.
+        global last_target_app
+        app = _mac_frontmost_app()
+        if app is not None and not _mac_is_own_app(app):
+            last_target_app = app
     beep(880)
     show_state("listening", profile)
     log(f"[{profile.name}] Recording... release {profile.hotkey_str()} to transcribe")
@@ -1075,7 +1220,7 @@ def transcribe_thread(profile, buf):
                 log(f"Transcription listener failed: {exc}")
         STATUS_QUEUE.put(("new_text",))
         show_state("typing", profile)
-        type_text(text)
+        request_paste(text)
         beep(1320)
     except Exception as e:
         done.set()
@@ -1097,6 +1242,25 @@ def _type_keystrokes(text):
     """Type text as simulated keystrokes (fallback when pasting fails)."""
     ctrl = pkb.Controller()
     ctrl.typewrite(text, interval=0.005)
+
+
+def _run_in_ui(fn):
+    """Run fn on the Tk main thread, or inline where that is not required.
+
+    pynput's Controller and pyperclip are not safe to call from worker threads
+    on macOS (CGEventPost can segfault outside the main thread), so synthetic
+    input there is dispatched through STATUS_QUEUE and executed in the Tk
+    mainloop. On Windows the call stays inline, exactly as before.
+    """
+    if sys.platform == "darwin":
+        STATUS_QUEUE.put(("call", fn))
+    else:
+        fn()
+
+
+def request_paste(text):
+    """Paste text into the user's text field (see _run_in_ui)."""
+    _run_in_ui(lambda: type_text(text))
 
 
 def type_text(text):
@@ -1125,18 +1289,26 @@ def type_text(text):
             log(f"Keystroke fallback failed too: {exc2}")
         return
     time.sleep(0.05)
-    try:
-        ctrl = pkb.Controller()
-        ctrl.press(pkb.Key.ctrl)
-        ctrl.tap("v")
-        ctrl.release(pkb.Key.ctrl)
-    except Exception as exc:
-        log(f"Ctrl+V failed ({exc}); trying simulated keystrokes")
+    if sys.platform == "darwin":
+        # pynput's Controller posts Cmd+V to the *frontmost* window, but our
+        # status overlay can become frontmost on macOS and swallow the paste.
+        # Re-activate the app that was focused when dictation started, then
+        # inject Cmd+V into it via System Events (Accessibility permission).
+        _mac_activate_app(last_target_app)
+        _mac_paste()
+    else:
         try:
-            _type_keystrokes(text)
-        except Exception as exc2:
-            log(f"Keystroke fallback failed too: {exc2}")
-            return
+            ctrl = pkb.Controller()
+            ctrl.press(pkb.Key.ctrl)
+            ctrl.tap("v")
+            ctrl.release(pkb.Key.ctrl)
+        except Exception as exc:
+            log(f"Ctrl+V failed ({exc}); trying simulated keystrokes")
+            try:
+                _type_keystrokes(text)
+            except Exception as exc2:
+                log(f"Keystroke fallback failed too: {exc2}")
+                return
     # Restore the user's previous clipboard once the target app had a moment
     # to read the paste - but never clobber a newer copy they made themselves.
     if old_clip is not None:
@@ -1170,11 +1342,17 @@ def scratch_last():
     count = len(last_typed_text)
     last_typed_text = None
     log(f"Scratching last transcription ({count} characters)")
-    try:
-        _send_backspaces(count)
-        beep(220)
-    except Exception as exc:
-        log(f"Scratch failed: {exc}")
+
+    def _erase():
+        try:
+            _send_backspaces(count)
+            beep(220)
+        except Exception as exc:
+            log(f"Scratch failed: {exc}")
+
+    # _send_backspaces posts synthetic events; on macOS that must happen on the
+    # Tk main thread (the hotkey itself arrives on pynput's listener thread).
+    _run_in_ui(_erase)
 
 
 def paste_last(icon=None, item=None):
@@ -1186,7 +1364,7 @@ def paste_last(icon=None, item=None):
         return
     profile = last_profile if last_profile is not None else profiles[0]
     show_state("typing", profile)
-    type_text(last_text)
+    request_paste(last_text)
     beep(1320)
     log("Re-pasted last transcription")
 
@@ -1478,6 +1656,33 @@ def main():
         target=_model_idle_watchdog, daemon=True, name="model-idle-watchdog"
     ).start()
 
+    # IMPORTANT: create the Tk overlay BEFORE touching pystray/AppKit.
+    # On macOS, if AppKit's NSApplication is created before Tk's
+    # TkApplication (pystray.Icon.__init__ calls NSApplication
+    # .sharedApplication()), Tk hard-crashes with
+    # '-[NSApplication macOSVersion]: unrecognized selector'.
+    overlay = StatusOverlay()
+    global OVERLAY_ROOT
+    OVERLAY_ROOT = overlay.root
+    show_state("ready")
+
+    if sys.platform == "darwin" and _mac_input_trusted() is False:
+        warn = (
+            "Input blocked - grant Accessibility / Input Monitoring to the app "
+            "that launches this (Terminal, iTerm2, ...) in System Settings -> "
+            "Privacy & Security, then relaunch."
+        )
+        log(warn)
+        log("See README 'Setup (macOS)' for details.")
+        STATUS_QUEUE.put(
+            (
+                "show",
+                "error",
+                STATE_COLORS["error"],
+                "⚠ Input blocked — grant Accessibility / Input Monitoring",
+            )
+        )
+
     listener = pkb.Listener(on_press=on_press, on_release=on_release)
     listener.daemon = True
     listener.start()
@@ -1492,10 +1697,6 @@ def main():
     )
     icon = pystray.Icon("whisper_dictate", make_icon_image(), APP_NAME, menu)
 
-    overlay = StatusOverlay()
-    global OVERLAY_ROOT
-    OVERLAY_ROOT = overlay.root
-    show_state("ready")
     try:
         icon.run_detached()
     except AttributeError:

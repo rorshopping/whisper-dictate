@@ -9,4 +9,6 @@ if [ ! -d .venv ]; then
   ./.venv/bin/pip install -r requirements.txt
 fi
 
-./.venv/bin/python main.py
+# launcher.py installs the optional add-ons (transcription history), the same
+# way run.bat does on Windows.
+exec ./.venv/bin/python launcher.py

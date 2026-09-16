@@ -90,12 +90,22 @@ macOS notes:
 - GPU: add your MPS/GPU compute settings in `config.json` (`device` /
   `compute_type`) — e.g. `"device": "cpu"` is the safest default on Apple
   Silicon without CUDA. The Nemotron engine currently runs on CUDA or CPU
-  only (no MPS path), so on a Mac the English profile uses the CPU.
+  only (no MPS path), so on a Mac both profiles use the CPU.
+- `run_mac.sh` starts `launcher.py` (the same entry point as `run.bat`), which
+  also installs the optional add-ons — transcription history included.
 - The bottom-center overlay uses Tk, which works on macOS; the click-through
-  flag is Windows-only, so the pill may intercept clicks on a Mac.
+  flag is Windows-only, so the pill may intercept clicks on a Mac. The paste
+  re-activates the app that was focused when dictation started, so the text
+  still lands in the right field.
 - Microphone + keyboard capture on macOS requires granting the terminal app
   **Microphone** and **Accessibility / Input Monitoring** permissions in
-  System Settings → Privacy & Security.
+  System Settings → Privacy & Security. Pasting is done with a System Events
+  keystroke, so the launcher also needs **Automation → System Events**
+  (macOS asks for this on the first paste). Without it, dictation still works
+  but the text cannot be inserted.
+- A force-quit can leave `.app.lock` behind (there is no kernel mutex on
+  macOS/Linux); the next start reclaims it automatically when the recorded
+  process is gone.
 
 ## Configuration
 
@@ -116,6 +126,10 @@ made the model echo prompt words instead of transcribing.
 - `paste_last_hotkey` — global hotkey to re-insert the most recent
   transcription into the currently focused field. Default `["ctrl", "shift",
   "f12"]`; set to `[]` to disable (the tray menu item still works).
+- `history_hotkey` — global hotkey that opens the transcription history file
+  (`transcription-history.jsonl`, one JSON record per transcription: timestamp,
+  profile, language, model, duration, text). Default `["ctrl", "shift", "f11"]`;
+  `history_enabled` (default `true`) turns the add-on off entirely.
 - `scratch_hotkey` — global hotkey that erases the most recent dictation by
   sending backspaces for the exact number of typed characters. Default
   `["ctrl", "shift", "f13"]`; set to `[]` to disable.
