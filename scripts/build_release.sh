@@ -87,6 +87,77 @@ find "$APP/Contents" -type f \( -name "*.so" -o -name "*.dylib" \) -print0 |
 AFTER_KB="$(du -sk "$APP" | awk '{print $1}')"
 echo "    $(du -sh "$APP" | awk '{print $1}') (was $((BEFORE_KB / 1024)) MB)"
 
+# --- signing ------------------------------------------------------------------
+#
+# Order is load-bearing: strip (above) invalidates any signature a nested binary
+# already carried, so every Mach-O must be (re)signed *after* stripping, from
+# the inside out, and the bundle last. codesign --deep is not a substitute: it
+# does not repair nested binaries here, and macOS kills the app with
+# "SIGKILL (Code Signature Invalid) / Invalid Page" when one is stale.
+
+sign_nested() {
+    local identity="$1"
+    shift
+    # || true: a single stubborn binary must not abort the whole build; the
+    # verification pass below is what decides whether the result is usable.
+    find "$APP/Contents" -type f \( -name "*.so" -o -name "*.dylib" \) -print0 2>/dev/null |
+        xargs -0 -n1 -P4 codesign --force "$@" --sign "$identity" 2>/dev/null || true
+    find "$APP/Contents/MacOS" -type f -perm -111 -print0 2>/dev/null |
+        xargs -0 -n1 -P4 codesign --force "$@" --sign "$identity" 2>/dev/null || true
+}
+
+verify_nested() {
+    local bad=0
+    while IFS= read -r -d '' file; do
+        if ! codesign --verify "$file" 2>/dev/null; then
+            echo "    invalid signature: ${file#$APP/Contents/}" >&2
+            bad=$((bad + 1))
+        fi
+    done < <(find "$APP/Contents" -type f \( -name "*.so" -o -name "*.dylib" \) -print0 2>/dev/null)
+    if [ "$bad" != "0" ]; then
+        echo "ERROR: $bad nested binaries still have an invalid signature." >&2
+        echo "The app would be killed at launch with 'Code Signature Invalid'." >&2
+        return 1
+    fi
+    return 0
+}
+
+DEV_ID="$(security find-identity -v -p codesigning 2>/dev/null \
+    | grep '"Developer ID Application' \
+    | sed -E 's/.*"([^"]*)".*/\1/' | head -1 || true)"
+
+if [ "$OPT_SIGN" = "1" ]; then
+    if [ -z "$DEV_ID" ]; then
+        cat >&2 <<'MSG'
+ERROR: --sign was requested but no "Developer ID Application" identity is in
+the keychain, so a notarizable build is impossible. A Developer ID certificate
+is issued only through the Apple Developer portal (Xcode > Settings > Accounts >
+Manage Certificates > + > Developer ID Application) by an account admin.
+
+Available identities on this machine:
+MSG
+        security find-identity -v -p codesigning >&2 || true
+        echo "Build NOT signed; refusing to claim a release build." >&2
+        exit 3
+    fi
+    echo "==> Signing with: $DEV_ID"
+    sign_nested "$DEV_ID" --timestamp --options runtime --entitlements "$ENTITLEMENTS"
+    codesign --force --timestamp --options runtime \
+        --entitlements "$ENTITLEMENTS" \
+        --identifier "$BUNDLE_ID" --sign "$DEV_ID" "$APP"
+    verify_nested
+    codesign --verify --strict --verbose=2 "$APP"
+    echo "==> Signature verified"
+else
+    echo "==> Ad-hoc signing (development build only - Gatekeeper will not trust it)"
+    sign_nested "-"
+    codesign --force --identifier "$BUNDLE_ID" --sign - "$APP"
+    # The nested check is not cosmetic: an ad-hoc build with a stale nested
+    # signature is killed on launch exactly like a broken Developer ID one.
+    verify_nested || exit 6
+    echo "==> Ad-hoc signature verified (nested binaries included)"
+fi
+
 # --- strip quarantine and verify the payload --------------------------------
 
 xattr -cr "$APP" 2>/dev/null || true
@@ -104,26 +175,24 @@ rm -f "$REPORT"
 # timeout (macOS ships no `timeout`), because a hang here would stall the build.
 "$APP/Contents/MacOS/Whisper Dictate" --doctor >/dev/null 2>&1 &
 DOCTOR_PID=$!
-for _ in $(seq 1 60); do
+for _ in $(seq 1 180); do
     if ! kill -0 "$DOCTOR_PID" 2>/dev/null; then break; fi
     sleep 1
 done
 if kill -0 "$DOCTOR_PID" 2>/dev/null; then
-    echo "warning: --doctor did not finish in 60s; killing it" >&2
+    echo "warning: --doctor did not finish in 180s; killing it" >&2
     kill -9 "$DOCTOR_PID" 2>/dev/null || true
 fi
-wait "$DOCTOR_PID" 2>/dev/null
-DOCTOR_STATUS=$?
+# || true: a killed or failed doctor must not abort the build under set -e.
+wait "$DOCTOR_PID" 2>/dev/null || true
 
 if [ -f "$REPORT" ]; then
     cat "$REPORT"
     if grep -q "FAIL" "$REPORT"; then
         echo "warning: the frozen self-check reported FAIL items (see above)" >&2
     fi
-elif [ "$DOCTOR_STATUS" != "0" ]; then
-    echo "warning: --doctor exited $DOCTOR_STATUS and wrote no report" >&2
 else
-    echo "    (no report written; the app may still be starting up)"
+    echo "warning: --doctor wrote no report (it may have been killed)" >&2
 fi
 
 # --- model load check ---------------------------------------------------------
@@ -163,45 +232,6 @@ else
     tail -12 "$DATA_DIR/dictate.log" 2>/dev/null | sed 's/^/    /' >&2
     echo "This build is broken - do not publish it." >&2
     exit 5
-fi
-
-# --- signing ------------------------------------------------------------------
-
-DEV_ID="$(security find-identity -v -p codesigning 2>/dev/null \
-    | grep '"Developer ID Application' \
-    | sed -E 's/.*"([^"]*)".*/\1/' | head -1 || true)"
-
-if [ "$OPT_SIGN" = "1" ]; then
-    if [ -z "$DEV_ID" ]; then
-        cat >&2 <<'MSG'
-ERROR: --sign was requested but no "Developer ID Application" identity is in
-the keychain, so a notarizable build is impossible. A Developer ID certificate
-is issued only through the Apple Developer portal (Xcode > Settings > Accounts >
-Manage Certificates > + > Developer ID Application) by an account admin.
-
-Available identities on this machine:
-MSG
-        security find-identity -v -p codesigning >&2 || true
-        echo "Build NOT signed; refusing to claim a release build." >&2
-        exit 3
-    fi
-    echo "==> Signing with: $DEV_ID"
-    # Inside out: every Mach-O first, then the bundle, so the seal is valid.
-    find "$APP/Contents" -type f \( -name "*.so" -o -name "*.dylib" \) -print0 |
-        xargs -0 -n1 -P4 codesign --force --timestamp --options runtime \
-            --entitlements "$ENTITLEMENTS" --sign "$DEV_ID" 2>/dev/null || true
-    find "$APP/Contents/MacOS" -type f -perm -111 -print0 |
-        xargs -0 -n1 -P4 codesign --force --timestamp --options runtime \
-            --entitlements "$ENTITLEMENTS" --sign "$DEV_ID" 2>/dev/null || true
-    codesign --force --timestamp --options runtime \
-        --entitlements "$ENTITLEMENTS" \
-        --identifier "$BUNDLE_ID" --sign "$DEV_ID" "$APP"
-    codesign --verify --deep --strict --verbose=2 "$APP"
-    echo "==> Signature verified"
-else
-    echo "==> Ad-hoc signing (development build only - Gatekeeper will not trust it)"
-    codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
-    codesign --verify --deep --strict "$APP" 2>/dev/null || true
 fi
 
 # --- notarization -------------------------------------------------------------
