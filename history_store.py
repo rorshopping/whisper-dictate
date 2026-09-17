@@ -10,6 +10,10 @@ Design notes:
 * Reading is tolerant: a truncated final line (a crash mid-write, a disk that
   filled up) is skipped, not an error. Losing one record must never make the
   history window fail to open.
+* All access to a given history file - appends from the dictation path,
+  delete/clear/prune edits from the UI - shares one per-path re-entrant lock,
+  so every read-modify-write is atomic within the process (the app runs as a
+  single instance; no cross-process locking is attempted).
 * Writes go through a temp file + atomic replace, and only when the record set
   actually changed, so a read-only or full disk cannot corrupt the history.
 * Nothing here imports tkinter or the app: pure stdlib, importable from a
@@ -25,6 +29,21 @@ import time
 from datetime import datetime, timezone
 
 _MAX_BYTES = 5_000_000
+
+# Keep locks for the lifetime of the process so existing stores and new
+# writers always agree. RLock allows a transaction to call load/_write.
+_PATH_LOCKS_GUARD = threading.Lock()
+_PATH_LOCKS = {}
+
+
+def _lock_for(path):
+    key = os.path.normcase(os.path.abspath(path)) if path else ""
+    with _PATH_LOCKS_GUARD:
+        lock = _PATH_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _PATH_LOCKS[key] = lock
+        return lock
 
 
 class HistoryRecord:
@@ -91,11 +110,16 @@ class HistoryRecord:
 
 
 class HistoryStore:
-    """Reads the JSONL file on demand; the app owns appending."""
+    """Reads the JSONL file on demand; the app owns appending.
+
+    Every read-modify-write (delete, clear, prune) and the appends from
+    ``append_record`` share one per-path lock, so a concurrent dictation
+    append is never lost while the history window edits the file.
+    """
 
     def __init__(self, path):
         self.path = path
-        self._lock = threading.Lock()
+        self._lock = _lock_for(path)
 
     # --- reading ----------------------------------------------------------
 
@@ -166,27 +190,34 @@ class HistoryStore:
         return self.delete_where(lambda r: r.to_dict() == target)
 
     def delete_where(self, predicate):
-        """Drop every record the predicate accepts. Returns how many went."""
-        keep = []
-        removed = 0
-        for record in self.load():
-            if predicate(record):
-                removed += 1
-            else:
-                keep.append(record)
-        if not removed:
-            return 0
-        # Written back oldest-first, the order the app appends in.
-        keep.reverse()
-        self._write([r.to_dict() for r in keep])
-        return removed
+        """Drop every record the predicate accepts. Returns how many went.
+
+        The whole read-filter-write cycle holds the per-path lock, so an
+        append that lands mid-delete is either fully included in the rewrite
+        or fully applied after it - never dropped.
+        """
+        with self._lock:
+            keep = []
+            removed = 0
+            for record in self.load():
+                if predicate(record):
+                    removed += 1
+                else:
+                    keep.append(record)
+            if not removed:
+                return 0
+            # Written back oldest-first, the order the app appends in.
+            keep.reverse()
+            self._write([r.to_dict() for r in keep])
+            return removed
 
     def clear(self):
-        records = self.load()
-        if not records:
-            return 0
-        self._write([])
-        return len(records)
+        with self._lock:
+            records = self.load()
+            if not records:
+                return 0
+            self._write([])
+            return len(records)
 
     def _write(self, rows):
         if not self.path:
@@ -206,7 +237,10 @@ class HistoryStore:
     # --- exporting --------------------------------------------------------
 
     def export_text(self, records=None, query=None):
-        rows = self.search(query) if query is not None else (records or self.load())
+        if query is not None:
+            rows = self.search(query)
+        else:
+            rows = self.load() if records is None else records
         blocks = []
         for record in rows:
             header = " - ".join(
@@ -216,7 +250,7 @@ class HistoryStore:
         return "\n\n".join(blocks)
 
     def export_markdown(self, records=None):
-        rows = records or self.load()
+        rows = records if records is not None else self.load()
         lines = ["# Whisper Dictate transcriptions", ""]
         for record in rows:
             when = record.when_text()
@@ -242,26 +276,37 @@ def append_record(path, profile_name, language, model, text, duration_s):
         os.makedirs(os.path.dirname(path), exist_ok=True)
     except OSError:
         pass
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record.to_dict(), ensure_ascii=False) + "\n")
+    # Hold the same per-path lock the readers/editors use: an append either
+    # happens entirely before a delete/clear/prune rewrite or entirely after
+    # it, never in between (which would lose the record).
+    with _lock_for(path):
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record.to_dict(), ensure_ascii=False) + "\n")
     return record
 
 
 def prune(path, keep=5000, max_bytes=_MAX_BYTES):
-    """Bound the file: keep the newest ``keep`` records when it grows past size."""
+    """Bound the file: keep the newest ``keep`` records when it grows past size.
+
+    The whole size-check, read, and rewrite holds the per-path lock, so
+    records appended while pruning are kept.
+    """
+    if not path:
+        return 0
     store = HistoryStore(path)
-    try:
-        if os.path.getsize(path) < max_bytes:
+    with store._lock:
+        try:
+            if os.path.getsize(path) < max_bytes:
+                return 0
+        except OSError:
             return 0
-    except OSError:
-        return 0
-    records = store.load()
-    if len(records) <= keep:
-        return 0
-    trimmed = records[:keep]
-    trimmed.reverse()
-    store._write([r.to_dict() for r in trimmed])
-    return len(records) - keep
+        records = store.load()
+        if len(records) <= keep:
+            return 0
+        trimmed = records[:keep]
+        trimmed.reverse()
+        store._write([r.to_dict() for r in trimmed])
+        return len(records) - keep
 
 
 def human_duration(seconds):

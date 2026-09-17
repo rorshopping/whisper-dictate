@@ -3,11 +3,15 @@
 Run: .venv/bin/python -m unittest discover -s tests -v
 """
 
+import importlib.util
 import json
 import os
 import sys
 import tempfile
+import threading
+import types
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -213,6 +217,154 @@ class PruneTests(unittest.TestCase):
         path = os.path.join(directory, "history.jsonl")
         write_lines(path, [record("only")])
         self.assertEqual(history_store.prune(path, keep=1), 0)
+
+
+class ConcurrencyTests(unittest.TestCase):
+    """Pause after a snapshot and prove the writer actually meets a held lock.
+
+    Events control ordering; nonblocking acquisition observes contention
+    without timing assumptions or sleeps. Timeouts only prevent hung tests.
+    """
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.path = os.path.join(directory.name, "history.jsonl")
+        write_lines(self.path, [record("drop"), record("keep")])
+
+    def test_stores_share_lock_for_equivalent_paths(self):
+        first = history_store.HistoryStore(self.path)
+        second = history_store.HistoryStore(os.path.relpath(self.path))
+        self.assertIs(first._lock, second._lock)
+        self.assertIsNot(first._lock, history_store.HistoryStore(self.path + "other")._lock)
+
+    def _assert_append_survives(self, operation, expected, removed, append_action=None):
+        snapshot_ready = threading.Event()
+        resume_edit = threading.Event()
+        writer_attempted = threading.Event()
+        blocked = []
+        errors = []
+        results = []
+        real_lock = history_store._lock_for(self.path)
+        original_load = history_store.HistoryStore.load
+
+        class ObservedLock:
+            def __enter__(self):
+                if threading.current_thread() is writer:
+                    acquired = real_lock.acquire(blocking=False)
+                    blocked.append(not acquired)
+                    writer_attempted.set()
+                    if not acquired:
+                        real_lock.acquire()
+                else:
+                    real_lock.acquire()
+                return self
+
+            def __exit__(self, *args):
+                real_lock.release()
+
+        def paused_load(store, limit=None):
+            rows = original_load(store, limit)
+            if threading.current_thread() is editor:
+                snapshot_ready.set()
+                if not resume_edit.wait(5):
+                    raise AssertionError("edit was not released")
+            return rows
+
+        def edit():
+            try:
+                results.append(operation(history_store.HistoryStore(self.path)))
+            except BaseException as exc:
+                errors.append(exc)
+
+        def append():
+            try:
+                if append_action is None:
+                    history_store.append_record(self.path, "EN", "en", "m", "new", 1.0)
+                else:
+                    append_action()
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                # Also wake the test if a broken append bypasses the lock.
+                writer_attempted.set()
+
+        editor = threading.Thread(target=edit, daemon=True)
+        writer = threading.Thread(target=append, daemon=True)
+        with mock.patch.object(history_store, "_lock_for", return_value=ObservedLock()), \
+                mock.patch.object(history_store.HistoryStore, "load", paused_load):
+            editor.start()
+            try:
+                self.assertTrue(snapshot_ready.wait(5), "editor did not read snapshot")
+                writer.start()
+                self.assertTrue(writer_attempted.wait(5), "writer did not attempt append")
+                self.assertEqual(blocked, [True], "append must wait for the whole edit")
+            finally:
+                resume_edit.set()
+                editor.join(5)
+                if writer.ident is not None:
+                    writer.join(5)
+            self.assertFalse(editor.is_alive())
+            self.assertFalse(writer.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(results, [removed])
+        self.assertEqual([r.text for r in history_store.HistoryStore(self.path).load()], expected)
+
+    def test_concurrent_append_survives_delete(self):
+        self._assert_append_survives(
+            lambda store: store.delete_where(lambda row: row.text == "drop"),
+            ["new", "keep"], 1,
+        )
+
+    def test_app_writer_shares_delete_lock(self):
+        # Load the real listener without importing main's audio/UI dependencies.
+        app = types.ModuleType("main")
+        app.HISTORY_PATH = self.path
+        app.cfg = {"history_enabled": True}
+        app.log = mock.Mock()
+        spec = importlib.util.spec_from_file_location(
+            "history_listener_under_test",
+            os.path.join(os.path.dirname(history_store.__file__), "enhanced_features.py"),
+        )
+        listener = importlib.util.module_from_spec(spec)
+        with mock.patch.dict(sys.modules, {"main": app}):
+            spec.loader.exec_module(listener)
+        profile = types.SimpleNamespace(name="EN", language="en", model="m")
+        self._assert_append_survives(
+            lambda store: store.delete_where(lambda row: row.text == "drop"),
+            ["new", "keep"], 1,
+            append_action=lambda: listener.save_history(profile, "new", 1.0),
+        )
+        app.log.assert_not_called()
+
+    def test_concurrent_append_survives_clear(self):
+        self._assert_append_survives(lambda store: store.clear(), ["new"], 2)
+
+    def test_concurrent_append_survives_prune(self):
+        self._assert_append_survives(
+            lambda store: history_store.prune(store.path, keep=1, max_bytes=1),
+            ["new", "keep"], 1,
+        )
+
+
+class ExportEmptyTests(unittest.TestCase):
+    """An explicit empty record list must not silently export everything."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.path = os.path.join(self.dir, "history.jsonl")
+        write_lines(self.path, [record("hello world")])
+        self.store = history_store.HistoryStore(self.path)
+
+    def test_export_markdown_with_empty_list_is_empty_body(self):
+        output = self.store.export_markdown(records=[])
+        self.assertNotIn("hello world", output)
+
+    def test_export_text_with_empty_list_is_empty(self):
+        self.assertEqual(self.store.export_text(records=[]), "")
+
+    def test_export_text_with_empty_query_still_exports_all(self):
+        self.assertIn("hello world", self.store.export_text(query=""))
 
 
 if __name__ == "__main__":

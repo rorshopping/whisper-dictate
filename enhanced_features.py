@@ -13,14 +13,12 @@ Run through launcher.py so the existing implementation stays easy to audit.
 
 import json
 import os
-import threading
 from datetime import datetime, timezone
 
 import history_store
 import main as app
 
 HISTORY_FILE = app.HISTORY_PATH
-_HISTORY_LOCK = threading.Lock()
 
 
 def _history_hotkey():
@@ -36,15 +34,16 @@ def save_history(profile, text, duration_s):
     if not _history_enabled() or not text:
         return
     try:
-        with _HISTORY_LOCK:
-            history_store.append_record(
-                HISTORY_FILE,
-                profile_name=profile.name,
-                language=profile.language,
-                model=profile.model,
-                text=text,
-                duration_s=duration_s,
-            )
+        # append_record serializes on the shared per-path lock in
+        # history_store, the same lock the history window's edits hold.
+        history_store.append_record(
+            HISTORY_FILE,
+            profile_name=profile.name,
+            language=profile.language,
+            model=profile.model,
+            text=text,
+            duration_s=duration_s,
+        )
     except Exception as exc:
         app.log(f"History write failed: {exc}")
 
