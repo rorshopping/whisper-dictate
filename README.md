@@ -17,7 +17,8 @@ the current state and both hotkeys, so you never forget them.
 ## Features
 
 - 100% local / offline — no audio ever leaves your machine
-- NVIDIA CUDA acceleration (falls back to CPU automatically)
+- NVIDIA CUDA acceleration on Windows, Apple GPU (MPS) on macOS — both fall
+  back to the CPU automatically
 - English: NVIDIA Nemotron Speech Streaming 0.6B — punctuation and
   capitalization are built in (no Whisper-style "sentences without casing")
 - German: NVIDIA Nemotron 3.5 ASR Streaming 0.6B with an explicit `de-DE`
@@ -63,17 +64,32 @@ Config keys: `sound` (boolean, default `true`) and `sound_theme` (default
 
 ## Requirements
 
-- Python 3.12 (3.13+ may be too new for the CUDA bridge, ctranslate2)
-- Windows (macOS compatible code paths included — see below)
+- Python 3.12+ (3.12 recommended on Windows: 3.13+ may be too new for the CUDA
+  bridge, ctranslate2)
+- Windows or macOS — see the platform setup below
+
+## Install
+
+One installer covers both platforms:
+
+```bash
+python install.py                     # auto-detect this machine
+python install.py --platform macos    # macOS setup
+python install.py --platform windows  # Windows setup
+python install.py --platform windows --cuda   # + CUDA torch build (nvidia GPU)
+```
+
+It creates `.venv`, installs `requirements.txt` (the CUDA math libraries are
+Windows-only and are skipped automatically by the environment markers), and
+finishes with the `--doctor` self-check. The platforms differ in exactly two
+places: the optional CUDA torch build (Windows) and `platform_mac.py`, which
+owns all macOS behaviour (see below).
 
 ## Setup (Windows)
 
 ```powershell
 cd C:\Users\Richard\Documents\Projects\whisper-dictate
-py -3.12 -m venv .venv
-# GPU transcription for the English Nemotron engine (PyPI's torch is CPU-only):
-.venv\Scripts\pip install torch --index-url https://download.pytorch.org/whl/cu126
-.venv\Scripts\pip install -r requirements.txt
+python install.py --platform windows --cuda
 ```
 
 Run once to download the models (offline mode only kicks in once the models
@@ -102,26 +118,42 @@ dictating. Exit code is `1` when any check fails.
 
 ## Setup (macOS)
 
-The app has non-Windows code paths (file lock instead of mutex, sound files
-via `afplay`, no taskbar/toolwindow attributes). To run on a Mac:
+macOS runtime support lives in `platform_mac.py` ("a platform module"), so
+platform-specific fixes stay separate from the shared `main.py`.
+`launcher.py` wires it up: `prepare()` runs before main is imported (stale
+lock recovery), `install()` afterwards (the patches). Shared feedback sounds
+are handled by `sound_cues.py`, using `afplay` on macOS.
+Always start through `run_mac.sh` / `launcher.py` — starting `main.py`
+directly skips the macOS support.
 
 ```bash
-chmod +x run_mac.sh
 ./run_mac.sh
 ```
 
 macOS notes:
 - The first run downloads the models from Hugging Face (~2.4 GB for each of
   the English and German Nemotron models) — keep internet on for that one run.
-- GPU: add your MPS/GPU compute settings in `config.json` (`device` /
-  `compute_type`) — e.g. `"device": "cpu"` is the safest default on Apple
-  Silicon without CUDA. The Nemotron engine currently runs on CUDA or CPU
-  only (no MPS path), so on a Mac the English profile uses the CPU.
+- The installer (`python install.py --platform macos`) is used automatically
+  on the first `./run_mac.sh`; re-run it any time to update dependencies.
+- GPU: `"device": "auto"` uses the Apple GPU (MPS) via `platform_mac.py` and
+  falls back to the CPU automatically if a model cannot be loaded there
+  (a `device` set in `config.json` always wins — e.g. `"cpu"`).
+- What `platform_mac.py` provides on top of upstream `main.py`:
+  - Tk is created before pystray/AppKit (otherwise Tk crashes with
+    `-[NSApplication macOSVersion]: unrecognized selector`).
+  - Paste and backspaces run on the Tk main thread (`CGEventPost` from worker
+    threads can segfault), and the text is pasted with Cmd+V via System Events
+    after re-activating the app that was focused when dictation started.
+  - A stale `.app.lock` from a force-quit is reclaimed on the next start.
+  - The pill warns when Accessibility / Input Monitoring is not granted.
 - The bottom-center overlay uses Tk, which works on macOS; the click-through
   flag is Windows-only, so the pill may intercept clicks on a Mac.
 - Microphone + keyboard capture on macOS requires granting the terminal app
   **Microphone** and **Accessibility / Input Monitoring** permissions in
-  System Settings → Privacy & Security.
+  System Settings → Privacy & Security. Pasting is done with a System Events
+  keystroke, so the launcher also needs **Automation → System Events**
+  (macOS asks for this on the first paste). Without it, dictation still works
+  but the text cannot be inserted.
 
 ## Configuration
 
@@ -142,6 +174,10 @@ made the model echo prompt words instead of transcribing.
 - `paste_last_hotkey` — global hotkey to re-insert the most recent
   transcription into the currently focused field. Default `["ctrl", "shift",
   "f12"]`; set to `[]` to disable (the tray menu item still works).
+- `history_hotkey` — global hotkey that opens the transcription history file
+  (`transcription-history.jsonl`, one JSON record per transcription: timestamp,
+  profile, language, model, duration, text). Default `["ctrl", "shift", "f11"]`;
+  `history_enabled` (default `true`) turns the add-on off entirely.
 - `scratch_hotkey` — global hotkey that erases the most recent dictation by
   sending backspaces for the exact number of typed characters. Default
   `["ctrl", "shift", "f13"]`; set to `[]` to disable.
@@ -210,6 +246,10 @@ Common notes:
 - CUDA: `device`/`compute_type` `"auto"` picks CUDA+float16 when available,
   CPU+int8 otherwise (faster-whisper); the Nemotron engines run fp16 on CUDA
   and fp32 on CPU, and log a warning when they fall back to CPU.
+- Apple GPU: on macOS `"auto"` means the Apple GPU (MPS) — `platform_mac.py`
+  switches the device once torch reports MPS support and falls back to the
+  CPU (logged in `dictate.log`) if a model cannot be loaded; set
+  `"device": "cpu"` in `config.json` to opt out.
 - Language prompt: on the multilingual (DE) checkpoint the profile's
   `language` must be one the model supports (e.g. `de`, `de-DE`); an
   unsupported value fails with an error that lists the valid options.
