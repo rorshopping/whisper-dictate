@@ -1,67 +1,60 @@
-# Whisper Dictate 1.1.0 — pre-release, not ready for public distribution
+# Whisper Dictate 1.1.0 — macOS Apple Silicon
 
-**Status: untrusted previews only.** macOS and Windows preview artifacts exist,
-but they are not approved production releases. No Linux artifact is available.
-Required signing credentials are missing. Do not publish these previews as a
-stable release or instruct users to bypass operating-system security checks.
+Standalone local push-to-talk dictation. This release includes Python and the
+application dependencies; installing Python is not required. Model weights are
+downloaded separately from Hugging Face and can occupy several gigabytes.
 
-## Artifact status
+## Available download
 
-| Platform | Preview artifact | Release status |
-|---|---|---|
-| macOS (Apple Silicon) | `WhisperDictate-1.1.0-macos-arm64.zip` | Untrusted preview; Developer ID signing and notarization outstanding |
-| Windows (x64) | `WhisperDictate-1.1.0-win64-unsigned.zip` | Untrusted, unsigned preview; trusted Authenticode signing outstanding |
-| Linux (x86_64) | None | Not built or validated for release |
+`WhisperDictate-1.1.0-macos-arm64.zip` — Apple Silicon macOS.
 
-An ad-hoc or locally verified signature is not equivalent to a trusted publisher
-signature. A `.sha256` file can detect changed bytes when compared with a trusted
-reference; it does not establish the publisher's identity or that an application
-is safe. This document is not evidence that an artifact has passed validation.
+Signed with Developer ID Application (team AGYVQ59A5S), notarized by Apple,
+and stapled. Gatekeeper accepted both the built app and a fresh extraction of
+this ZIP. SHA-256:
 
-## Preview scope
+```
+a84368d7dbca12d993dfba6a9b2616b5a494643d04789527fb7ea86a31f7e15e
+```
 
-Whisper Dictate is intended to provide local push-to-talk transcription and
-insertion at the cursor. The source includes packaging support, per-user data
-storage, settings and transcription-history windows, hotword corrections, voice
-snippets, and optional English/German spoken punctuation. Their presence in the
-source does not establish end-to-end functionality in each packaged artifact.
+Notarization submission: `a2f0efdf-bd77-4e3b-a91d-136c0b627647` (Accepted).
 
-The standalone packaging aims to include Python and application dependencies.
-Model weights are not bundled and must be obtained separately on first use.
-Initial setup therefore requires network access unless the required models have
-already been cached. Model download sizes and CPU/GPU performance vary by model,
-profile, and machine; no cross-platform performance claim is made here.
+## Getting started
 
-The packaged application's intended data locations are:
+Unzip and move Whisper Dictate.app to Applications. Open it and grant microphone
+and accessibility/input permissions when requested. Hold the configured hotkey,
+speak, and release to transcribe. The default English hotkey is Ctrl+Shift+Space.
+The tray menu provides settings and transcription history.
 
-| Platform | Folder |
-|---|---|
-| Windows | `%APPDATA%\Whisper Dictate` |
-| macOS | `~/Library/Application Support/Whisper Dictate` |
-| Linux (planned package) | `~/.local/share/whisper-dictate` |
+The first use requires an internet connection to download a model unless it is
+already cached. CPU/MPS performance depends on the model and hardware.
 
-Configuration, logs, and transcription history may contain sensitive text.
-Local processing is not a guarantee that the computer, its backups, or its
-stored data are secure. Offline behavior and network activity must be checked
-against the exact release artifact before making absolute privacy claims.
+## Included improvements
 
-## Outstanding release gates
+- Searchable local transcription history: copy, delete and export.
+- Settings UI, per-profile hotkeys and language settings.
+- Opt-in English/German spoken punctuation and whole-utterance voice snippets.
+- Packaged defaults separated from per-user settings and history.
+- Shared history locking to prevent concurrent deletion from losing a new entry.
 
-- Obtain a macOS Developer ID Application identity, sign the complete bundle,
-  notarize and staple it, and verify normal Gatekeeper acceptance.
-- Obtain trusted Windows Authenticode signing credentials, sign and timestamp
-  the executable, and validate the downloaded package on a clean machine.
-- Build a Linux artifact and document/test its supported distribution and
-  display-session requirements. X11-based input support in the source is not
-  evidence of a working Linux release; Wayland compatibility is unverified.
-- Record clean-machine results for launch, microphone access, model setup,
-  dictation, hotkeys, text insertion, and data handling for each offered platform.
-- Audit bundled defaults and contents for private data; generate and verify
-  checksums for the exact approved artifacts.
-- Review download-page and launch-copy claims against that evidence before any
-  public release or promotion.
+## Verification and limitations
 
-`scripts/publish_release.sh` only stages assets in a draft prerelease, refuses
-existing public releases, and never replaces existing assets. Staging does not
-satisfy any of the trust or validation gates above. See `docs/RELEASE.md` for the
-operator workflow.
+73 source tests passed. Frozen doctor passed 21/21 checks with bundled defaults
+and a copied model cache; default English model preload passed on MPS. Embedded
+history_store, enhanced_features and main code match the current source. Fresh
+ZIP extraction passed signature, notarization, Gatekeeper and doctor checks.
+
+These checks do not constitute a full fresh-account microphone-to-cursor test,
+a privacy audit, or a compatibility guarantee for every application/macOS
+version. German model availability was checked, but full German transcription
+was not exercised in these release checks. Local history contains dictated text;
+use the history window to delete entries you do not want to retain.
+
+## Other platforms
+
+Windows and Linux are not included in this public release. Windows signing is
+unavailable; an earlier unsigned Windows preview and Linux X11 preview remain
+internal and need rebuilding with the latest history fix. Linux VM checks cannot
+verify physical microphone capture or real-desktop tray/paste behavior.
+
+The application source repository is currently private. No subscription or
+account is required by the desktop app.

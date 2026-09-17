@@ -45,6 +45,13 @@ if [ ! -x "$VENV_PY" ]; then
     exit 2
 fi
 
+# Tk must be present before freezing; PyInstaller otherwise silently omits the
+# GUI and produces an executable that fails even for --doctor.
+if ! "$VENV_PY" -c 'import tkinter; import _tkinter' 2>/dev/null; then
+    echo "Missing build dependency: tkinter (Debian/Ubuntu: python3-tk)." >&2
+    exit 2
+fi
+
 # --- runtime dependencies the frozen bundle still needs on the host ----------
 # These are dlopen'ed by PortAudio/X11/xkbcommon, so PyInstaller cannot bundle
 # them; they must be listed for the user instead of silently failing at start.
