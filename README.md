@@ -25,6 +25,9 @@ the current state and both hotkeys, so you never forget them.
   language prompt (the multilingual model never auto-detects the language)
 - Hotwords per language: customize `hotwords-en.txt` / `hotwords-de.txt`
   (faster-whisper profiles only — see "Nemotron models" below)
+- Personal vocabulary stays personal: a gitignored `*.local.txt` file next to
+  any corrections/hotword file (e.g. `corrections-en.local.txt`) is merged at
+  runtime, so private terms work locally but never end up in a published repo
 - **Paste last transcription**: if you forget to click into a text field before
   dictating, select the field afterwards and press `Ctrl+Shift+F12` (or use the
   tray menu "Paste last transcription") to insert the most recent recording
