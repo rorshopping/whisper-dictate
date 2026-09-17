@@ -6,3 +6,4 @@ dictate.log*
 .app.lock
 test.wav
 transcription-history.jsonl
+*.local.txt

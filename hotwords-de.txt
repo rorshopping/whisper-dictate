@@ -3,6 +3,9 @@
 # Decoder-Kontext bevorzugt werden sollen).
 # Zeilen mit # werden ignoriert.
 
+# Personal terms belong in the gitignored *.local.txt file (merged at
+# runtime), so private vocabulary never ends up in the public repo.
+
 API
 JSON
 SQL
@@ -49,10 +52,6 @@ Variablenname
 Camel Case
 Snake Case
 Groß- und Kleinschreibung
-SNiPs
-Herdr
-Becker-performant
-Becker ETL
 OpenCode
 GitHub
 Playwright
@@ -68,11 +67,4 @@ SSH
 iOS
 TikTok
 UGC
-Masterarbeit
-Konzernlagebericht
-Lagebericht
-Eventualverbindlichkeiten
-Bürgschaften
-Handelsrecht
-Konzernabschluss
 Unsicherheit

@@ -2,6 +2,9 @@
 # These are fed to the model as hotwords (vocabulary hints), so keep this list focused.
 # Lines starting with # are ignored.
 
+# Personal terms belong in the gitignored *.local.txt file (merged at
+# runtime), so private vocabulary never ends up in the public repo.
+
 API
 JSON
 YAML
@@ -49,22 +52,13 @@ microservices
 dependency
 deadlock
 race condition
-SNiPs
-Herdr
-Becker-performant
-Becker-Codehub
-Becker ETL
 Pi coding agent
 OpenCode
 Z-Code
 DeepSeek
 GLM
-Muespark
 Nemotron
 Whisper
-DataSnipper
-DataF
-UpSlide
 ElevenLabs
 Kokoro
 Voicebox
@@ -84,7 +78,6 @@ iOS
 App Store
 Stripe
 TSM
-JEV core
 Vercel
 Banana Pi
 Hacker News

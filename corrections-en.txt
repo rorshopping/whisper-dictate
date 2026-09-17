@@ -2,37 +2,23 @@
 # Applied case-insensitively to every final transcription (fast, no model cost).
 # Add variants Whisper actually outputs, e.g. if it writes "pie coding agent".
 # Lines starting with # are ignored. Reload via tray menu "Reload hotwords".
+#
+# Personal corrections belong in corrections-en.local.txt (gitignored) so your
+# private vocabulary never ends up in the public repo. Both files are merged.
 
 py coding agent => pi coding agent
 pie coding agent => pi coding agent
 pycoding => pi coding
 committment push => commit and push
 commitment push => commit and push
-herder => herdr
 reppo => repo
 github => GitHub
-
-# Project and tool names (variants observed in dictate history)
-backup performance => Becker-performant
-backer performance => Becker-performant
-becker performance => Becker-performant
-backup performant => Becker-performant
-becker performant => Becker-performant
-backer minus performance => Becker-performant
-back or minus performance => Becker-performant
-back or performance => Becker-performant
-background minus performance => Becker-performant
-becker-pane => Becker-performant
-background minus code hub => Becker-Codehub
 open code => OpenCode
 open code 2 => OpenCode 2
 open code two => OpenCode 2
 open code go => OpenCode
 z code => Z-Code
-data snipper => DataSnipper
-datasnipper => DataSnipper
 deep seek => DeepSeek
-mues spark => Muespark
 11 labs => ElevenLabs
 play the right => Playwright
 Playrouet => Playwright
@@ -43,9 +29,7 @@ kokoro => Kokoro
 remotion => Remotion
 hyperframes => HyperFrames
 tailscale => Tailscale
-upslide => UpSlide
 trial bounds => trial balances
-lagerbrecht => Konzernlagebericht
 recall minus app => recall-app
 sub agent => sub agents
 ECOSU => accuracy
@@ -54,17 +38,8 @@ ECOSU => accuracy
 # Intentional preference: also changes literal "I want it to" statements.
 I want it to => I want you to
 I wanted to => I want you to
-Jeff core => JEV core
-Jef core => JEV core
-J E F core => JEV core
-J E V core => JEV core
-Jev core => JEV core
 
 # Additional unambiguous variants observed in history
-backer minus performant => Becker-performant
-back or minus performant => Becker-performant
-becker-performance => Becker-performant
-backer ETL => Becker ETL
 banana pie => Banana Pi
 verse cell CLI => Vercel CLI
 Hiker News => Hacker News

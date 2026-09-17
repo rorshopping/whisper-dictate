@@ -259,3 +259,12 @@ Common notes:
 - Offline: once models are downloaded, `"offline": true` (the default) skips
   the network check. Offline is only enforced when the models are already in
   the local cache, so first-time setup still downloads.
+
+## Support this project
+
+Whisper Dictate is free and open source (MIT). If it saves you typing, you
+can support development via "pay what you want" on Gumroad:
+
+<!-- SUPPORT-LINK: add Gumroad URL here before publishing -->
+
+or by reporting bugs and sending pull requests right here on GitHub.

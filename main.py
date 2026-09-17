@@ -223,29 +223,41 @@ def load_config():
     return cfg
 
 
-def load_hotwords(path):
+def _local_path(path):
+    """Personal overrides live next to the tracked file as *.local.txt and are
+    gitignored, so private vocabulary never ends up in a public repo."""
+    full = path if os.path.isabs(path) else os.path.join(BASE_DIR, path)
+    root, ext = os.path.splitext(full)
+    return root + ".local" + (ext or ".txt")
+
+
+def _read_lines(path):
     full = path if os.path.isabs(path) else os.path.join(BASE_DIR, path)
     if not os.path.exists(full):
-        return ""
-    words = []
+        return []
     with open(full, "r", encoding="utf-8") as f:
-        for line in f:
-            w = line.strip()
-            if w and not w.startswith("#"):
-                words.append(w)
+        return [line.strip() for line in f]
+
+
+def load_hotwords(path):
+    words = []
+    for source in (path, _local_path(path)):
+        for line in _read_lines(source):
+            if line and not line.startswith("#"):
+                words.append(line)
     return " ".join(words)
 
 
 def load_corrections(path):
-    """Load deterministic wrong=>correct pairs. Missing/empty file -> []."""
+    """Load deterministic wrong=>correct pairs. Missing/empty file -> [].
+
+    Merges the tracked file with an optional gitignored *.local.txt override
+    holding personal corrections that should not be published."""
     if not path:
         return []
-    full = path if os.path.isabs(path) else os.path.join(BASE_DIR, path)
-    if not os.path.exists(full):
-        return []
     pairs = []
-    with open(full, "r", encoding="utf-8") as f:
-        for line in f:
+    for source in (path, _local_path(path)):
+        for line in _read_lines(source):
             line = line.strip()
             if not line or line.startswith("#") or "=>" not in line:
                 continue
