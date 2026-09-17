@@ -1,76 +1,60 @@
-# Launch checklist
+# Launch checklist — blocked
 
-The state of the release, in the order the remaining work has to happen.
+Current status: **untrusted previews only; not ready for public launch**.
+Historical local checks do not establish that a downloaded package is trusted
+or works on a clean machine. No release is authorized by this checklist.
 
-## 1. Artifacts
+## 1. Artifact and trust gates
 
-| Platform | Built where | Status |
+| Platform | Current status | Required before public release |
 |---|---|---|
-| macOS arm64 | this Mac (`scripts/build_release.sh --zip`) | **done** — 21/21 self-check, model loads on MPS in 2.4 s, nested signatures verified |
-| Windows x64 | `beckerhub-pc-tail` (`win_build.ps1`) | building — clean CPU-torch venv, unit tests run before freezing |
-| Linux x86_64 | `wdlinux` Lima VM, Debian 12 (`scripts/build_release_linux.sh --tar`) | building |
+| macOS arm64 | Untrusted preview exists; Developer ID credentials missing | Developer ID signing, notarization/stapling, normal Gatekeeper acceptance, clean-machine functional tests |
+| Windows x64 | Untrusted unsigned preview exists; trusted signing credentials missing | Trusted Authenticode signing/timestamp, signature validation, clean-machine functional tests |
+| Linux x86_64 | No artifact available | Build, define supported distributions/display sessions, test the exact packaged artifact |
 
-Both remaining builds must report their own `--doctor` result before they count.
-The Windows build has no code-signing certificate, so its zip is named
-`-unsigned` and the page labels it "Unsigned preview".
+For every offered platform:
 
-## 2. Publish
+- [ ] Audit bundled defaults and package contents for personal data and secrets.
+- [ ] Test launch, microphone permission, model setup, hotkeys, transcription,
+      insertion at cursor, settings, history, and restart on a clean machine.
+- [ ] Verify trust using the platform's normal controls; do not bypass security
+      warnings to count a release gate as passed.
+- [ ] Record model/network requirements, hardware support, and known limitations.
+- [ ] Generate and verify checksums for the exact approved artifacts. Checksums
+      alone do not prove publisher trust.
 
-```bash
-cd ~/Documents/projects/whisper-dictate
-./scripts/publish_release.sh dist/WhisperDictate-1.1.0-*.zip dist/WhisperDictate-1.1.0-linux-*.tar.gz
-```
+## 2. Stage drafts only
 
-The script uploads to `rorshopping/whisper-dictate-releases` and then fetches the
-first asset URL anonymously: a `200` proves the download works for a visitor who
-is not signed in to GitHub (`curl -sI <url>`). Anything other than `200` means the
-artifact is not actually downloadable and the script fails.
+`scripts/publish_release.sh` creates draft prereleases, refuses existing public
+releases, stops on HTTP/API errors, and never deletes or replaces assets.
+Specify actual artifact paths rather than globs for platforms that do not exist.
+See `docs/RELEASE.md` for the staging command and failure behavior.
 
-## 3. Deploy the website
+- [ ] Keep unapproved artifacts in drafts. Do not promote during uploads.
+- [ ] Inspect the complete asset list and release notes before approval.
+- [ ] Obtain explicit public-release approval only after the gates above pass.
 
-The page is `/whisper-dictate` in `becker-hub-web` (Next.js on Vercel). It is
-nav-linked on desktop, in the footer, in the sitemap, and it reads the release
-feed at request time with a one-hour cache — so a new artifact appears without a
-redeploy, but the **page itself** needs one deploy:
+Staging is not publication. Drafts are not anonymously downloadable, and the
+publisher deliberately does not check anonymous download URLs or update the site.
 
-```bash
-cd ~/Documents/projects/becker-codehub/becker-hub-web
-git add -A && git commit -m "Add Whisper Dictate product page"
-npx vercel --prod          # requires `npx vercel login` first; there is no token on this machine
-```
+## 3. Website and public-access gates
 
-Verified locally before deploying: `npm run build` succeeds and the page
-prerenders; `scrollWidth == clientWidth` at 390/640/768/1440 px (no horizontal
-overflow); the hero heading, download row, comparison table, feature list,
-platform notes and FAQ are all present at mobile width.
+- [ ] Describe actual release status; do not offer a stable download backed only
+      by an untrusted preview.
+- [ ] Do not show a Linux download until a validated artifact exists.
+- [ ] Check all platform/architecture, signing, offline, and performance claims
+      against the exact approved artifacts.
+- [ ] After separately approved publication, verify each offered download
+      anonymously, following redirects; validate its checksum and normal launch.
+- [ ] Confirm stale feeds/caches do not resurrect unavailable or untrusted links.
 
-## 4. Post the thread
+## 4. Launch copy
 
-`docs/LAUNCH_TWEETS.md` holds an 8-tweet thread plus a single-post variant.
-`scripts/check_tweets.py` counts each tweet the way X does (URLs = 23 chars,
-emoji = 2) and currently reports every tweet inside 280.
+`docs/LAUNCH_TWEETS.md` is marked **NOT READY TO POST** and documents withdrawn
+claims. No launch thread or stable-release announcement is currently approved.
 
-Before posting:
-
-* attach one real screenshot to tweet 1 — the dictation tape or the status pill;
-  the thread promises local processing and a stock gradient would undercut that
-  in the first second
-* if the Windows/Linux artifacts are not published yet, tweet 8's link still
-  works: the page renders with every platform falling back to "See releases"
-  instead of a dead button
-
-## What is deliberately not done
-
-* **No code signing.** macOS has no Developer ID certificate and Windows has no
-  trusted Authenticode certificate. Both gaps are displayed to the user rather
-  than papered over: the download page prints "Unsigned preview", and the
-  Windows build script refuses to produce a zip that claims to be signed.
-  `docs/BUILD_MACHINES.md` says exactly which certificate to create.
-* **No GitHub workflow.** The user asked for none. Signing on the machines that
-  own the keys is also the correct architecture for the macOS and Windows cases;
-  the Linux build in a VM is reproducible from `packaging/lima-linux-build.yaml`.
-* **No Linux arm64 or Windows arm64 build.** Neither was requested and neither
-  can be validated here.
-* **The `build/` deletions in the `becker-codehub` checkout are pre-existing**
-  (parent directory mtime Sep 2). They are recoverable with
-  `git checkout -- build/` if they were not intentional.
+- [ ] Finish artifact, trust, website, and public-access gates first.
+- [ ] Check factual claims independently of approximate tweet-length checks.
+- [ ] Do not claim public source access: the source repository is private.
+- [ ] Avoid unverified competitor prices, privacy absolutes, GPU/performance
+      guarantees, or unsupported platform availability.

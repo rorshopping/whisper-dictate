@@ -1,15 +1,15 @@
 # Releasing Whisper Dictate
 
-Three standalone builds, one per OS. PyInstaller freezes the interpreter and
-every dependency into the bundle, so the download needs no Python, no venv, and
-no install step — the user unzips (or opens the `.app`) and runs it.
+**Current status: pre-release, not approved for public distribution.** Only
+untrusted macOS and Windows previews exist. There is no Linux artifact yet;
+required macOS and Windows signing credentials are missing.
 
-**No GitHub workflows are used.** Each platform is built and signed on its own
-machine, and the artifacts are uploaded to the public releases repo that the
-website already reads (`rorshopping/becker-hub-releases` is the Becker Hub
-repo; Whisper Dictate uses its own public repo — see *Publishing* below).
+The intended packaging uses PyInstaller to bundle Python and dependencies.
+Packaging success alone does not prove clean-machine functionality or trust.
+**No GitHub workflows are used.** Builds are platform-native; the commands below
+describe the intended release workflow, not completed release validation.
 
-## What ships
+## Planned artifacts (not a list of available downloads)
 
 | Platform | Artifact | Built on | Script |
 |---|---|---|---|
@@ -17,10 +17,10 @@ repo; Whisper Dictate uses its own public repo — see *Publishing* below).
 | Windows | `WhisperDictate-1.1.0-win64[-unsigned].zip` | a Windows machine | `scripts\build_release.ps1` |
 | Linux | `WhisperDictate-1.1.0-linux-x86_64.tar.gz` | Linux (oldest supported base) | `scripts/build_release_linux.sh` |
 
-Model weights are **not** bundled. On first dictation the app downloads its
-models from Hugging Face (a few hundred MB per profile) into the normal HF
-cache; after that `HF_HUB_OFFLINE=1` keeps everything local. Bundling them would
-add 2–4 GB to the download for no benefit to anyone who dictates offline.
+Model weights are **not** bundled. First use requires the selected models in
+the Hugging Face cache, normally obtained over the network. Download sizes vary
+by model/profile. Validate cached offline operation in each exact artifact;
+`HF_HUB_OFFLINE=1` alone is not a guarantee about all application network traffic.
 
 ## Release defaults are not the developer's config
 
@@ -66,8 +66,8 @@ Check this every release: a leaked download is permanent.
 * Both flags **fail closed**: no certificate or no notarization profile means no
   artifact and no "signed release" claim.
 
-Without flags the script produces an unsigned `.app` for local testing;
-Gatekeeper will require right-click → Open on first launch.
+Without flags the script produces an untrusted `.app` for local testing, not
+an approved public release. Do not instruct users to bypass Gatekeeper.
 
 ## Windows
 
@@ -86,8 +86,8 @@ powershell -ExecutionPolicy Bypass -File scripts\build_release.ps1 -Sign -Releas
     trusted store). This is what a release needs.
   * **self-signed** — only verifies where the certificate is installed. Useful
     for one machine, **never** for a public download.
-  * **unsigned** — SmartScreen shows "Windows protected your PC"; users can
-    still choose *More info → Run anyway*.
+  * **unsigned** — no trusted publisher signature; not approved for public
+    distribution. Do not instruct users to bypass SmartScreen.
 * `-Release` refuses to build unless the signature is trusted, and prints the
   three real options (OV/EV certificate, Azure Trusted Signing, or an explicitly
   labelled unsigned preview).
@@ -110,18 +110,33 @@ powershell -ExecutionPolicy Bypass -File scripts\build_release.ps1 -Sign -Releas
   session the paste only works through XWayland and hotkeys may not be captured.
   The download page must say this.
 
-## Publishing
+## Draft staging (not publishing)
 
-1. Build the artifact(s) and keep the `.sha256` files next to them.
-2. Upload to the **public** releases repo (anonymous users cannot download from
-   the private source repo), then verify anonymously:
-   `curl -sI <download-url>` must return `200`.
-3. Update the release manifest the website reads, so `/download` links resolve:
-   the site (`becker-hub-web`) classifies assets by filename — see
-   `src/lib/releases.ts`. A macOS `.zip`, a Windows `.zip` (with `x64`/`win64`
-   in the name) and a Linux `.tar.gz` are all recognised.
-4. Only add a platform to the download page once its artifact is **actually**
-   signed for that platform, or is clearly labelled as an unsigned preview.
+`scripts/publish_release.sh` stages artifacts in the dedicated release-assets
+repository `rorshopping/whisper-dictate-releases`. It has no public-publish mode.
+
+```bash
+TAG=v1.1.0-preview.1 ./scripts/publish_release.sh "dist/WhisperDictate-1.1.0-macos-arm64.zip"
+```
+
+- New releases are created with **both `--draft` and `--prerelease`**. The default
+  tag remains `v1.1.0`; if that tag is already public the script refuses it. Use
+  a new draft tag, not a replacement of an existing public release.
+- An existing release must still be a draft before every upload. Public releases
+  are refused, including public prereleases. Do not promote a draft concurrently:
+  GitHub does not provide an atomic draft-check-and-upload operation.
+- Existing assets are never deleted or overwritten. A filename collision fails
+  the batch preflight; duplicate input basenames also fail. Paths containing
+  spaces are supported. Adjacent `.sha256` files are staged automatically.
+- API/network failures and non-201 upload responses stop execution. A failed
+  batch can leave earlier uploads in the draft; no automatic cleanup is done.
+- Draft assets are **not anonymous downloads**. Upload success is not evidence
+  of signing, artifact integrity, clean-machine functionality, or public access.
+
+Public release approval is separate and currently blocked. Complete the gates
+in `docs/LAUNCH_CHECKLIST.md`, then review the exact artifacts and website claims
+before any promotion. Filename labels and checksums are not proof of trust.
+Do not advertise Linux until an artifact exists and has been validated.
 
 ## Verifying a build
 

@@ -1,97 +1,39 @@
-# Launch thread
+# Launch copy — NOT READY TO POST
 
-Rules respected: 280 characters max per tweet, no more than 4 hashtags, and no
-tweet depends on an image that is not attached. Numbers below are the ones the
-shipped code and the pricing pages actually support — do not inflate them.
+Public launch is blocked. Only untrusted macOS/Windows previews exist; there is
+no Linux artifact, and required signing credentials are missing. Do not post a
+stable-release announcement or direct people to bypass OS security controls.
 
-Thread order matters: the hook, the problem, the mechanism, the vocabulary
-feature, the privacy point, the receipts, the ask.
+The previous launch thread has been withdrawn rather than retained as
+copy-ready text. Its claims were not supported by release evidence:
 
----
+| Withdrawn claim | Required correction or evidence |
+|---|---|
+| Downloads for Windows, macOS and Linux | No Linux artifact exists. macOS/Windows are untrusted previews, not approved releases. |
+| All cloud tools cost $15/month, upload a live feed, and impose word allowances | Avoid universal competitor claims. Any comparison needs named products, current primary sources, dates, and comparable plans. |
+| Replaces a $15/month subscription above 2,000 words/week | Unverified price, allowance, and functional-equivalence claims; remove. |
+| CPU is fine; automatic CUDA/MPS acceleration | Benchmark the exact packaged builds. Source capability and local developer hardware do not establish packaged GPU support or adequate CPU performance. |
+| Nothing is uploaded, ever; the network stays idle | Model setup requires downloads. Validate network behavior for each exact artifact; do not make absolute privacy guarantees. |
+| It learns your words | User-maintained vocabulary and text replacement are not model learning or retraining. Describe them as corrections, not learning. |
+| Spoken punctuation and snippets are both plain text files | Snippets use text files; punctuation is an opt-in setting backed by code. |
+| “Scratch that” is something nobody else ships | Unsupported exclusivity claim; remove. Cursor-based deletion also needs limitations explained and packaged-build testing. |
+| Everything is inspectable; the source is on GitHub | The source repository is private. A public release-assets repository is not public source access. Logs/history are not a complete audit. |
+| First-use model download is a few hundred MB | Depends on the selected model/profile; measure before quoting a size. |
+| Free, no account, no word limit | Confirm current distribution terms and exact artifact behavior before making launch promises. |
 
-**1/8**
+## Safe development-status draft (not a launch announcement)
 
-> Dictation tools charge $15/month and send your voice to a server.
->
-> I built the opposite: hold a hotkey, speak, release — the text is typed at your cursor. Entirely on your machine.
->
-> Free, no account, no word limit. Windows, macOS and Linux.
->
-> Whisper Dictate 🧵
+**1/1**
 
-**2/8**
+> Whisper Dictate is still in preview. macOS and Windows builds are not yet trusted releases; signing and release validation remain outstanding. There is no Linux download yet. Public launch is on hold.
 
-> The catch with every cloud dictation app is the same: your microphone is a live feed to someone else's GPU. Legal memos, patient notes, unreleased code — all of it leaves the building.
->
-> And then the week's word allowance runs out and it stops.
+## Before restoring launch copy
 
-**3/8**
-
-> Whisper Dictate runs a 0.6B NVIDIA Nemotron streaming model locally.
->
-> CPU is fine. It uses your NVIDIA GPU (CUDA) or Apple GPU (MPS) when you have one, and falls back automatically when you don't.
->
-> Audio is captured, decoded and typed in one process. Nothing is uploaded, ever.
-
-**4/8**
-
-> The feature I actually use most: it learns *your* words.
->
-> Drop your project names, acronyms and people into a text file. After each dictation, near-misses get rewritten to the spelling you wrote down. No retraining, no dashboard, no "custom vocabulary" upsell.
-
-**5/8**
-
-> Two more things generic dictation gets wrong:
->
-> → Say "comma" or "new line" and get the real character (opt-in, English + German)
-> → Say "my signature" and a block you stored gets typed verbatim
->
-> Both are plain text files you own.
-
-**6/8**
-
-> And the one nobody ships: "scratch that".
->
-> A hotkey that backspaces exactly the characters of your last dictation. Watch it go wrong at the cursor, erase it, speak again — without touching the mouse.
-
-**7/8**
-
-> Everything is inspectable:
->
-> · dictate.log records every step
-> · transcription history is a JSONL file you can search
-> · the network stays idle after the first model download
-> · the source is on GitHub
->
-> You can verify the claims instead of trusting them.
-
-**8/8**
-
-> Downloads for Windows, macOS and Linux — free, no account, no word limit:
->
-> https://becker-hub-web.vercel.app/whisper-dictate
->
-> If you dictate more than 2,000 words a week, this replaces a $15/month subscription.
-
----
-
-## Single-post variant (if you prefer one tweet)
-
-> Cloud dictation: $15/month, word limits, your voice on someone's server.
->
-> Whisper Dictate: hold a hotkey, speak, release — text typed at your cursor, transcription running entirely on your machine. Free and offline on Windows, macOS and Linux.
->
-> https://becker-hub-web.vercel.app/whisper-dictate
-
-## Notes on posting
-
-* Attach one real screenshot to tweet 1 (the dictation tape / status pill) or
-  none at all — a thread that promises local and shows a stock gradient
-  undercuts itself in the first second.
-* Send tweet 8 last; the link in the final post keeps reach on the earlier ones.
-* Numbers to have ready if anyone asks: first dictation downloads a few hundred
-  MB per language profile; the app is 1.1.0; Windows and macOS previews are
-  unsigned, so the first launch needs More info → Run anyway / right-click →
-  Open.
-* If someone reports a platform problem, the honest answer is the Linux one:
-  X11 session required for pasting and global hotkeys.
+- Complete the per-platform gates in `docs/LAUNCH_CHECKLIST.md`.
+- Confirm that every platform named in the copy has an approved, accessible
+  artifact and that the download page reports its actual status.
+- Record model download requirements, packaged hardware support, and observed
+  network behavior without turning limited tests into universal guarantees.
+- Use a real screenshot only if it represents the offered build.
+- Review factual claims separately from length checks. `scripts/check_tweets.py`
+  is an approximate character-count helper, not factual or publication approval.

@@ -1,7 +1,10 @@
 # How the three builds work (and what needs to be true on each machine)
 
-Whisper Dictate ships as three independent standalone builds, produced on three
-different machines. There is no GitHub workflow by design: the macOS build must
+Whisper Dictate plans three independent standalone builds. Currently only
+untrusted macOS/Windows previews exist; there is no Linux artifact, and required
+signing credentials are missing. Host details below are historical operator
+notes, not proof of current build status or release validation.
+There is no GitHub workflow by design: the macOS build must
 run where the Developer ID key lives, the Windows build must run on Windows (and
 may need a certificate that cannot be copied around), and the Linux build must
 run on the oldest glibc you support.
@@ -19,9 +22,10 @@ scripts and their flags.
 
 ## Certificate status (2026-09-16)
 
-* **macOS: no `Developer ID Application` identity.** The keychain has Apple
-  Development (team XJJBC8TUNW) and Apple Distribution (team AGYVQ59A5S).
-  Neither is accepted by Gatekeeper for a website download. A Developer ID
+* **macOS: no `Developer ID Application` identity.** Local Apple Development
+  and Apple Distribution identities belong to team AGYVQ59A5S; certificate
+  labels are not reliable team identifiers. Neither identity type establishes
+  Gatekeeper acceptance for a website download. A Developer ID
   certificate is created in the Apple Developer portal by an account admin:
   Xcode → Settings → Accounts → Manage Certificates → **+** → *Developer ID
   Application*. Until then every macOS artifact is an unsigned preview and the
@@ -39,7 +43,7 @@ refuses to produce a zip whose signature is not trusted.
 ## Build commands
 
 ```bash
-# macOS (this Mac) — unsigned preview that anyone can still run
+# macOS (this Mac) — untrusted preview for local validation only
 ./scripts/build_release.sh --zip
 # macOS, once a Developer ID identity exists
 ./scripts/build_release.sh --sign --notarize --zip
@@ -101,16 +105,17 @@ you are done so it stops using 8 GB of RAM, and delete it
 ## Publishing
 
 ```bash
-./scripts/publish_release.sh dist/*.zip dist/*.tar.gz
+TAG=v1.1.0-preview.1 ./scripts/publish_release.sh "dist/WhisperDictate-1.1.0-macos-arm64.zip"
 ```
 
-The script uploads to `rorshopping/whisper-dictate-releases` (public), replaces
-an asset of the same name instead of making `name-1`, and then verifies the
-result is anonymously downloadable — the source repository is private, so a link
-into it would 404 for every visitor.
+The script stages artifacts as a **draft prerelease** in
+`rorshopping/whisper-dictate-releases` and does not publish: it refuses existing
+public releases, never replaces existing assets, stops on HTTP/API errors, and
+supports paths with spaces. It no longer verifies anonymous download URLs —
+draft assets are not anonymous downloads anyway. Any anonymous-download or
+public-release verification is a separate, currently-blocked approval step.
 
-The website (`becker-hub-web`, page `/whisper-dictate`) reads that repository's
-latest release through `src/lib/whisperReleases.ts`; it needs no deploy after an
-upload, only a page reload once the one-hour cache expires. An unsigned artifact
-is labelled as such on the page (`-unsigned` in the filename is what the
-classifier looks for).
+The website (`becker-hub-web`, page `/whisper-dictate`) has separate release-feed
+handling in `src/lib/whisperReleases.ts`. Review its actual behavior and cache
+state before public approval. Draft uploads must not become public download
+links, and an asset filename is not evidence of a trusted signature.

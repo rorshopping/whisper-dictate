@@ -1,104 +1,67 @@
-# Whisper Dictate 1.1.0
+# Whisper Dictate 1.1.0 — pre-release, not ready for public distribution
 
-Local, offline push-to-talk dictation for Windows, macOS and Linux. Hold a
-hotkey, speak, release — the transcription is typed at your cursor. No account,
-no word limit, no audio leaving the machine.
+**Status: untrusted previews only.** macOS and Windows preview artifacts exist,
+but they are not approved production releases. No Linux artifact is available.
+Required signing credentials are missing. Do not publish these previews as a
+stable release or instruct users to bypass operating-system security checks.
 
-## Downloads
+## Artifact status
 
-| Platform | Artifact | Status |
+| Platform | Preview artifact | Release status |
 |---|---|---|
-| macOS (Apple Silicon) | `WhisperDictate-1.1.0-macos-arm64.zip` | unsigned preview |
-| Windows (x64) | `WhisperDictate-1.1.0-win64-unsigned.zip` | unsigned preview |
-| Linux (x86_64) | `WhisperDictate-1.1.0-linux-x86_64.tar.gz` | tarball |
+| macOS (Apple Silicon) | `WhisperDictate-1.1.0-macos-arm64.zip` | Untrusted preview; Developer ID signing and notarization outstanding |
+| Windows (x64) | `WhisperDictate-1.1.0-win64-unsigned.zip` | Untrusted, unsigned preview; trusted Authenticode signing outstanding |
+| Linux (x86_64) | None | Not built or validated for release |
 
-**These previews are not code-signed.** macOS needs a right-click → Open on the
-first launch, Windows shows SmartScreen's "More info → Run anyway". Signing
-requires a Developer ID certificate (macOS) and a trusted Authenticode
-certificate (Windows), neither of which exists yet — see
-`docs/BUILD_MACHINES.md` for exactly what is missing and how to add it. The
-`.sha256` next to each artifact is the checksum of what was uploaded.
+An ad-hoc or locally verified signature is not equivalent to a trusted publisher
+signature. A `.sha256` file can detect changed bytes when compared with a trusted
+reference; it does not establish the publisher's identity or that an application
+is safe. This document is not evidence that an artifact has passed validation.
 
-## What is new in this release
+## Preview scope
 
-**Standalone builds.** Every platform now ships a frozen bundle: the Python
-interpreter and every dependency are inside the artifact, so there is no venv,
-no `pip install`, and no Python requirement on the user's machine. Model weights
-are still downloaded on first use (a few hundred MB per language profile) into
-the normal Hugging Face cache; after that the app runs offline.
+Whisper Dictate is intended to provide local push-to-talk transcription and
+insertion at the cursor. The source includes packaging support, per-user data
+storage, settings and transcription-history windows, hotword corrections, voice
+snippets, and optional English/German spoken punctuation. Their presence in the
+source does not establish end-to-end functionality in each packaged artifact.
 
-**A per-user data folder.** A packaged build keeps `config.json`, the log, the
-lock file, the hotwords/corrections/snippets and the transcription history in
-the platform's user data directory instead of next to the sources:
+The standalone packaging aims to include Python and application dependencies.
+Model weights are not bundled and must be obtained separately on first use.
+Initial setup therefore requires network access unless the required models have
+already been cached. Model download sizes and CPU/GPU performance vary by model,
+profile, and machine; no cross-platform performance claim is made here.
+
+The packaged application's intended data locations are:
 
 | Platform | Folder |
 |---|---|
 | Windows | `%APPDATA%\Whisper Dictate` |
 | macOS | `~/Library/Application Support/Whisper Dictate` |
-| Linux | `~/.local/share/whisper-dictate` |
+| Linux (planned package) | `~/.local/share/whisper-dictate` |
 
-It is seeded from the bundled defaults on first run and never overwritten, so
-upgrading keeps your settings. Running from a checkout is unchanged — the files
-stay in the repository.
+Configuration, logs, and transcription history may contain sensitive text.
+Local processing is not a guarantee that the computer, its backups, or its
+stored data are secure. Offline behavior and network activity must be checked
+against the exact release artifact before making absolute privacy claims.
 
-**Transcription history window.** Tray → "Transcription history…" (or the
-history hotkey) opens a searchable list of every dictation with copy,
-re-paste-at-cursor, delete, clear, a Markdown export, and a header with your
-totals. It replaces "open the JSONL file in a text editor".
+## Outstanding release gates
 
-**Settings window.** Tray → "Settings…" edits the device, sound, capture
-buffer, model idle-unload, fuzzy-hotword and text-tool options plus each
-profile's name, hotkey and language, and opens the hotword, correction and
-snippet files. No more hand-editing JSON for everyday changes.
+- Obtain a macOS Developer ID Application identity, sign the complete bundle,
+  notarize and staple it, and verify normal Gatekeeper acceptance.
+- Obtain trusted Windows Authenticode signing credentials, sign and timestamp
+  the executable, and validate the downloaded package on a clean machine.
+- Build a Linux artifact and document/test its supported distribution and
+  display-session requirements. X11-based input support in the source is not
+  evidence of a working Linux release; Wayland compatibility is unverified.
+- Record clean-machine results for launch, microphone access, model setup,
+  dictation, hotkeys, text insertion, and data handling for each offered platform.
+- Audit bundled defaults and contents for private data; generate and verify
+  checksums for the exact approved artifacts.
+- Review download-page and launch-copy claims against that evidence before any
+  public release or promotion.
 
-**Spoken punctuation** (opt-in, `"spoken_punctuation": true`). Say "comma",
-"period", "new line", "question mark" — or the German "komma", "punkt", "neue
-zeile", "fragezeichen" — and the real character is inserted, with the next word
-capitalised after a sentence mark. Off by default because it rewrites ordinary
-words. A command that would duplicate punctuation the model already emitted is
-dropped, never doubled.
-
-**Voice snippets** (`snippets-<language>.txt`, on by default). Say a trigger on
-its own — "my signature" — and a stored block is typed verbatim, line breaks
-included. Matching is whole-utterance and case-insensitive, so a snippet can
-never fire in the middle of a sentence, and its content is inserted exactly as
-written.
-
-**Release tooling.** `scripts/build_release.sh` (macOS),
-`scripts/build_release.ps1` (Windows) and `scripts/build_release_linux.sh`
-(Linux) build each platform's artifact on that platform, with macOS signing
-inside-out before notarization and Windows signing that refuses to label a
-self-signed or unsigned build as a release. The macOS script verifies the frozen
-app by actually loading a model, because a build that imports cleanly can still
-fail at runtime (it did: `transformers` needs `librosa`, which no file in this
-repository imports).
-
-## Fixes
-
-- **`--doctor` was ignored by `launcher.py`.** On macOS, `run_mac.sh` (and the
-  `.app` bundle) started the full app even for one-shot flags, because the
-  launcher always called `main.main()`. It now dispatches `--doctor` the same
-  way `main.py` does.
-- **`--doctor` output in a windowed build.** A frozen `.app` has no console, so
-  the self-check now writes `doctor-report.txt` into the data folder instead of
-  reporting into the void.
-- **Fuzzy-hotword and text-tool stages ran in the wrong order.** Corrections,
-  fuzzy hotwords, then snippets/spoken punctuation — so a snippet is never
-  rewritten by the fuzzy pass.
-- **Bundle size.** Stripping local symbols from the bundled Mach-O binaries
-  removes ~107 MB (the app is 787 MB unpacked, from 894 MB) without touching
-  behaviour; verified by loading a model from the frozen bundle afterwards.
-
-## Known limitations
-
-- **Windows and Linux artifacts are built on their own platforms.** There is no
-  cross-compilation and no GitHub workflow by design; the Linux bundle must be
-  built on the oldest distribution you intend to support, because it links the
-  build machine's glibc.
-- **Linux needs an X11 session.** Recording works under PipeWire or PulseAudio,
-  but pasting and the global hotkeys use the X11 input API; on Wayland only the
-  paste works, and only through XWayland.
-- **macOS builds are Apple Silicon only** (`arm64`). An Intel build needs a
-  build on an Intel Mac or a universal2 toolchain.
-- The first dictation downloads the model; on a metered connection, copy the
-  Hugging Face cache from another machine instead.
+`scripts/publish_release.sh` only stages assets in a draft prerelease, refuses
+existing public releases, and never replaces existing assets. Staging does not
+satisfy any of the trust or validation gates above. See `docs/RELEASE.md` for the
+operator workflow.
