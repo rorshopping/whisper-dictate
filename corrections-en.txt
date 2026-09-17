@@ -53,6 +53,7 @@ ECOSU => accuracy
 # User-confirmed mishearings (2026-09-17)
 # Intentional preference: also changes literal "I want it to" statements.
 I want it to => I want you to
+I wanted to => I want you to
 Jeff core => JEV core
 Jef core => JEV core
 J E F core => JEV core
