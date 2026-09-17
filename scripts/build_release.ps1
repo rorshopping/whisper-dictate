@@ -86,8 +86,21 @@ if (-not (Test-Path $ExePath)) { throw "Expected $ExePath" }
 Get-ChildItem $OutDir | ForEach-Object { Write-Host "    $($_.Name)" }
 
 Write-Host "==> Self-check"
-& $ExePath --doctor
-$doctorExit = $LASTEXITCODE
+$doctorReportPath = Join-Path $env:APPDATA "Whisper Dictate\doctor-report.txt"
+Remove-Item $doctorReportPath -ErrorAction SilentlyContinue
+$doctor = Start-Process -FilePath $ExePath -ArgumentList "--doctor" -PassThru -WindowStyle Hidden
+if (-not $doctor.WaitForExit(240000)) {
+    $doctor.Kill()
+    throw "Doctor timed out - refusing to package"
+}
+$doctor.Refresh()
+if (-not (Test-Path $doctorReportPath)) { throw "Doctor produced no report - refusing to package" }
+$doctorReport = Get-Content $doctorReportPath -Raw
+Write-Host $doctorReport
+if ($doctor.ExitCode -ne 0 -or $doctorReport -match '\[FAIL\]' -or
+    $doctorReport -notmatch '\d+/\d+ checks passed\.') {
+    throw "Doctor failed (exit $($doctor.ExitCode)) - refusing to package"
+}
 
 # --- signing ------------------------------------------------------------------
 
@@ -170,8 +183,4 @@ if ($signStatus -ne "trusted") {
     Write-Host ""
     Write-Host "This artifact is NOT signed by a trusted certificate. Do not present it"
     Write-Host "as a signed release; SmartScreen will warn until it earns reputation."
-}
-if ($doctorExit -ne 0) {
-    Write-Warning "The frozen app's --doctor self-check reported problems."
-    exit 1
 }

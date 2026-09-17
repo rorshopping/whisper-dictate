@@ -1,16 +1,14 @@
-# Whisper Dictate 1.1.0 — macOS Apple Silicon
+# Whisper Dictate 1.1.0 — macOS, Windows and Linux
 
-Standalone local push-to-talk dictation. This release includes Python and the
-application dependencies; installing Python is not required. Model weights are
-downloaded separately from Hugging Face and can occupy several gigabytes.
+Standalone local push-to-talk dictation for Apple Silicon macOS (signed and
+notarized) plus unsigned Windows and Linux builds. Bundles include Python and
+dependencies; models download separately from Hugging Face.
 
-## Available download
+## macOS download
 
 `WhisperDictate-1.1.0-macos-arm64.zip` — Apple Silicon macOS.
-
-Signed with Developer ID Application (team AGYVQ59A5S), notarized by Apple,
-and stapled. Gatekeeper accepted both the built app and a fresh extraction of
-this ZIP. SHA-256:
+Developer ID signed, notarized and stapled; Gatekeeper accepted a fresh ZIP
+extraction. SHA-256:
 
 ```
 a84368d7dbca12d993dfba6a9b2616b5a494643d04789527fb7ea86a31f7e15e
@@ -49,12 +47,33 @@ version. German model availability was checked, but full German transcription
 was not exercised in these release checks. Local history contains dictated text;
 use the history window to delete entries you do not want to retain.
 
-## Other platforms
+## Windows and Linux (unsigned)
 
-Windows and Linux are not included in this public release. Windows signing is
-unavailable; an earlier unsigned Windows preview and Linux X11 preview remain
-internal and need rebuilding with the latest history fix. Linux VM checks cannot
-verify physical microphone capture or real-desktop tray/paste behavior.
+Unsigned builds are also published in this release for users who accept the
+missing signature. Windows: SmartScreen warns on first launch. Linux: requires
+an X11 session; some distributions need `libportaudio2` and a PulseAudio or
+ALSA backend.
+
+- `WhisperDictate-1.1.0-win64-unsigned.zip` (SHA-256
+  `53f2e1933081ef378f1aae0845620411dd4668e049f9fc13a2a548dae8c09d40`): built on
+  Windows with CPU-only torch, Authenticode status NotSigned. Fresh-extracted
+  doctor 21/21, both Nemotron models loaded from cache on CPU, frozen GUI and
+  tray windows created, 69 native tests passed, embedded modules matched source.
+- `WhisperDictate-1.1.0-linux-x86_64-unsigned.tar.gz` (SHA-256
+  `7c91c6fe12a2a34f1ea96488a96f0b78a41fd39c74775ec3dac250777fc68dbb`): built on
+  Debian 12 with CPU-only torch. Fresh-extraction doctor 21/21 (22/22 with an
+  explicit virtual device), both models loaded offline, and an English
+  synthetic-speech run was captured, transcribed and pasted end to end.
+
+Each artifact has a `-unsigned-validation.md` next to it with scope and limits.
+These builds are not code-signed: SmartScreen/Gatekeeper equivalent warnings
+are expected. Not verified: microphone speech on physical hardware, interactive
+hotkeys in a real desktop session, or Windows paste-at-cursor. On Linux the
+English synthetic dictation passed end-to-end; the German run loaded the model
+and completed inference but produced no output, so **German transcription is
+not verified on Linux**. Windows validation loaded the multilingual model,
+but a successful German dictation was not demonstrated on any platform in
+these checks.
 
 The application source repository is currently private. No subscription or
 account is required by the desktop app.

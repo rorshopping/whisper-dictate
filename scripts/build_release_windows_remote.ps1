@@ -58,7 +58,10 @@ Write-Output "=== 5. syntax check and unit tests ==="
 Push-Location $Src
 & $VenvPy -m py_compile main.py enhanced_features.py desktop_ui.py history_store.py text_tools.py app_paths.py launcher.py
 if ($LASTEXITCODE -ne 0) { Pop-Location; throw "the app does not compile" }
-& $VenvPy -m unittest discover -s tests
+# The publisher regression suite exercises a POSIX shell and executable
+# shebang stubs; run it on macOS/Linux, not native Windows. Run every native
+# application suite here (including the shared-history-lock regressions).
+& $VenvPy -m unittest tests.test_app_paths tests.test_history_store tests.test_text_tools
 if ($LASTEXITCODE -ne 0) { Pop-Location; throw "unit tests failed on Windows" }
 Pop-Location
 
@@ -80,12 +83,21 @@ Get-ChildItem $OutDir | Select-Object -ExpandProperty Name | Select-Object -Firs
 
 Write-Output ""
 Write-Output "=== 8. doctor self-check ==="
-Remove-Item "$env:APPDATA\Whisper Dictate\doctor-report.txt" -ErrorAction SilentlyContinue
-$p = Start-Process -FilePath $Exe -ArgumentList "--doctor" -PassThru -WindowStyle Hidden
-if (-not $p.WaitForExit(240000)) { $p.Kill(); Write-Output "doctor timed out" }
-Start-Sleep -Seconds 1
 $report = "$env:APPDATA\Whisper Dictate\doctor-report.txt"
-if (Test-Path $report) { Get-Content $report | Select-Object -Last 12 } else { Write-Output "NO REPORT" }
+Remove-Item $report -ErrorAction SilentlyContinue
+$p = Start-Process -FilePath $Exe -ArgumentList "--doctor" -PassThru -WindowStyle Hidden
+if (-not $p.WaitForExit(240000)) {
+    $p.Kill()
+    throw "doctor timed out - refusing to package"
+}
+$p.Refresh()
+if (-not (Test-Path $report)) { throw "doctor produced no report - refusing to package" }
+$doctorReport = Get-Content $report -Raw
+Write-Output $doctorReport
+if ($p.ExitCode -ne 0 -or $doctorReport -match '\[FAIL\]' -or
+    $doctorReport -notmatch '\d+/\d+ checks passed\.') {
+    throw "doctor failed (exit $($p.ExitCode)) - refusing to package"
+}
 
 Write-Output ""
 Write-Output "=== 8b. model load check ==="
