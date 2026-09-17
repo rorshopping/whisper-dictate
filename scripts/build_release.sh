@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Build the standalone, self-contained macOS app bundle.
 #
-#   scripts/build_release.sh                  # unsigned dev build (local use)
-#   scripts/build_release.sh --sign           # Developer ID sign (needs the cert)
-#   scripts/build_release.sh --sign --notarize   # sign + notarize + staple (release)
-#   scripts/build_release.sh --zip            # zip the .app for a download page
+#   scripts/build_release.sh                  # ad-hoc preview, not for release
+#   scripts/build_release.sh --sign           # signed preview, not for release
+#   scripts/build_release.sh --sign --notarize --zip  # verified release archive
+#   scripts/build_release.sh --zip            # explicitly named preview archive
 #
 # Difference to build_macos_app.sh: that script builds a *thin launcher* bundle
 # that runs launcher.py from this checkout with the checkout's .venv - fine for
@@ -44,6 +44,31 @@ done
 if [ "$(uname -s)" != "Darwin" ]; then
     echo "build_release.sh builds the macOS bundle - run it on macOS." >&2
     exit 2
+fi
+
+# Validate signing credentials before installing anything or replacing a build.
+DEV_ID=""
+if [ "$OPT_SIGN" = "1" ]; then
+    for tool in security codesign; do
+        command -v "$tool" >/dev/null || { echo "ERROR: missing $tool." >&2; exit 3; }
+    done
+    DEV_ID="$(security find-identity -v -p codesigning | \
+        sed -nE "s/.*\"(Developer ID Application: .*\\($APPLE_TEAM\\))\".*/\\1/p" | \
+        head -1)"
+    if [ -z "$DEV_ID" ]; then
+        echo "ERROR: no valid Developer ID Application identity for team $APPLE_TEAM." >&2
+        echo "No build produced; signing credentials are required for --sign." >&2
+        exit 3
+    fi
+fi
+if [ "$OPT_NOTARIZE" = "1" ]; then
+    command -v spctl >/dev/null || { echo "ERROR: missing spctl." >&2; exit 3; }
+    xcrun --find notarytool >/dev/null
+    xcrun --find stapler >/dev/null
+    if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null; then
+        echo "ERROR: notary profile '$NOTARY_PROFILE' is unavailable or invalid. No build produced." >&2
+        exit 3
+    fi
 fi
 
 if [ ! -x "$VENV_PY" ]; then
@@ -98,18 +123,23 @@ echo "    $(du -sh "$APP" | awk '{print $1}') (was $((BEFORE_KB / 1024)) MB)"
 sign_nested() {
     local identity="$1"
     shift
-    # || true: a single stubborn binary must not abort the whole build; the
-    # verification pass below is what decides whether the result is usable.
-    find "$APP/Contents" -type f \( -name "*.so" -o -name "*.dylib" \) -print0 2>/dev/null |
-        xargs -0 -n1 -P4 codesign --force "$@" --sign "$identity" 2>/dev/null || true
-    find "$APP/Contents/MacOS" -type f -perm -111 -print0 2>/dev/null |
-        xargs -0 -n1 -P4 codesign --force "$@" --sign "$identity" 2>/dev/null || true
+    # Sign all Mach-O payloads (including extensionless framework binaries).
+    # find -depth keeps nested payloads ahead of their containing bundle.
+    local file
+    while IFS= read -r -d '' file; do
+        if file -b "$file" | grep -q 'Mach-O'; then
+            codesign --force "$@" --sign "$identity" "$file" || return 1
+        fi
+    done < <(find "$APP/Contents" -depth -type f -print0)
+    while IFS= read -r -d '' file; do
+        codesign --force "$@" --sign "$identity" "$file" || return 1
+    done < <(find "$APP/Contents" -depth -type d \( -name '*.framework' -o -name '*.app' -o -name '*.xpc' \) -print0)
 }
 
 verify_nested() {
     local bad=0
     while IFS= read -r -d '' file; do
-        if ! codesign --verify "$file" 2>/dev/null; then
+        if ! codesign --verify --strict "$file"; then
             echo "    invalid signature: ${file#$APP/Contents/}" >&2
             bad=$((bad + 1))
         fi
@@ -122,31 +152,14 @@ verify_nested() {
     return 0
 }
 
-DEV_ID="$(security find-identity -v -p codesigning 2>/dev/null \
-    | grep '"Developer ID Application' \
-    | sed -E 's/.*"([^"]*)".*/\1/' | head -1 || true)"
-
 if [ "$OPT_SIGN" = "1" ]; then
-    if [ -z "$DEV_ID" ]; then
-        cat >&2 <<'MSG'
-ERROR: --sign was requested but no "Developer ID Application" identity is in
-the keychain, so a notarizable build is impossible. A Developer ID certificate
-is issued only through the Apple Developer portal (Xcode > Settings > Accounts >
-Manage Certificates > + > Developer ID Application) by an account admin.
-
-Available identities on this machine:
-MSG
-        security find-identity -v -p codesigning >&2 || true
-        echo "Build NOT signed; refusing to claim a release build." >&2
-        exit 3
-    fi
     echo "==> Signing with: $DEV_ID"
     sign_nested "$DEV_ID" --timestamp --options runtime --entitlements "$ENTITLEMENTS"
     codesign --force --timestamp --options runtime \
         --entitlements "$ENTITLEMENTS" \
         --identifier "$BUNDLE_ID" --sign "$DEV_ID" "$APP"
     verify_nested
-    codesign --verify --strict --verbose=2 "$APP"
+    codesign --verify --deep --strict --verbose=2 "$APP"
     echo "==> Signature verified"
 else
     echo "==> Ad-hoc signing (development build only - Gatekeeper will not trust it)"
@@ -155,44 +168,73 @@ else
     # The nested check is not cosmetic: an ad-hoc build with a stale nested
     # signature is killed on launch exactly like a broken Developer ID one.
     verify_nested || exit 6
+    codesign --verify --deep --strict --verbose=2 "$APP"
     echo "==> Ad-hoc signature verified (nested binaries included)"
 fi
 
-# --- strip quarantine and verify the payload --------------------------------
-
-xattr -cr "$APP" 2>/dev/null || true
+# --- verify the payload without changing quarantine --------------------------
 
 echo "==> Bundle contents"
 du -sh "$APP"
 
-echo "==> Self-check"
-DATA_DIR="$HOME/Library/Application Support/Whisper Dictate"
-REPORT="$DATA_DIR/doctor-report.txt"
-rm -f "$REPORT"
+# HOME and cwd are both isolated: app_paths can migrate config from cwd.
+# Copy ONLY model cache payloads, never tokens or private app configuration.
+# APFS clones share storage but not writes; ordinary copies are the fallback.
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/whisper-release.XXXXXX")"
+TEST_HOME="$TEST_ROOT/home"
+DOCTOR_PID=""
+APP_PID=""
+cleanup() {
+    for pid in "$DOCTOR_PID" "$APP_PID"; do
+        if [ -n "$pid" ]; then
+            kill -9 "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+        fi
+    done
+    rm -rf "$TEST_ROOT"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+mkdir -p "$TEST_HOME/.cache/huggingface/hub" "$TEST_ROOT/tmp"
+CACHE_SOURCE="${HF_HUB_CACHE:-${HUGGINGFACE_HUB_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}/hub}}"
+if [ -d "$CACHE_SOURCE" ]; then
+    cp -cR "$CACHE_SOURCE/." "$TEST_HOME/.cache/huggingface/hub/" 2>/dev/null || \
+        cp -R "$CACHE_SOURCE/." "$TEST_HOME/.cache/huggingface/hub/"
+fi
+run_isolated() (
+    cd "$TEST_HOME"
+    exec env -i HOME="$TEST_HOME" PATH="$PATH" \
+        USER="${USER:-}" LOGNAME="${LOGNAME:-}" TMPDIR="$TEST_ROOT/tmp/" \
+        XDG_CACHE_HOME="$TEST_HOME/.cache" XDG_CONFIG_HOME="$TEST_HOME/.config" \
+        XDG_DATA_HOME="$TEST_HOME/.local/share" \
+        HF_HOME="$TEST_HOME/.cache/huggingface" \
+        HF_HUB_CACHE="$TEST_HOME/.cache/huggingface/hub" \
+        HF_HUB_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1 \
+        "$APP/Contents/MacOS/Whisper Dictate" "$@"
+)
 
-# The bundle is a windowed app: it has no console, so --doctor writes its report
-# to the data folder instead of stdout. Run it in the background with a manual
-# timeout (macOS ships no `timeout`), because a hang here would stall the build.
-"$APP/Contents/MacOS/Whisper Dictate" --doctor >/dev/null 2>&1 &
+echo "==> Self-check (isolated home, bundled defaults, offline model cache)"
+DATA_DIR="$TEST_HOME/Library/Application Support/Whisper Dictate"
+REPORT="$DATA_DIR/doctor-report.txt"
+run_isolated --doctor >"$TEST_ROOT/doctor-console.log" 2>&1 &
 DOCTOR_PID=$!
 for _ in $(seq 1 180); do
     if ! kill -0 "$DOCTOR_PID" 2>/dev/null; then break; fi
     sleep 1
 done
 if kill -0 "$DOCTOR_PID" 2>/dev/null; then
-    echo "warning: --doctor did not finish in 180s; killing it" >&2
-    kill -9 "$DOCTOR_PID" 2>/dev/null || true
+    echo "ERROR: --doctor timed out after 180s." >&2
+    exit 5
 fi
-# || true: a killed or failed doctor must not abort the build under set -e.
-wait "$DOCTOR_PID" 2>/dev/null || true
-
-if [ -f "$REPORT" ]; then
-    cat "$REPORT"
-    if grep -q "FAIL" "$REPORT"; then
-        echo "warning: the frozen self-check reported FAIL items (see above)" >&2
-    fi
-else
-    echo "warning: --doctor wrote no report (it may have been killed)" >&2
+DOCTOR_STATUS=0
+wait "$DOCTOR_PID" || DOCTOR_STATUS=$?
+DOCTOR_PID=""
+if [ -f "$REPORT" ]; then cat "$REPORT"; fi
+if [ "$DOCTOR_STATUS" != "0" ] || [ ! -s "$REPORT" ] || grep -q 'FAIL' "$REPORT"; then
+    echo "ERROR: --doctor failed (exit $DOCTOR_STATUS), wrote no report, or reported FAIL." >&2
+    cat "$TEST_ROOT/doctor-console.log" >&2
+    exit 5
 fi
 
 # --- model load check ---------------------------------------------------------
@@ -205,7 +247,7 @@ fi
 
 echo "==> Model load check"
 rm -f "$DATA_DIR/dictate.log"
-"$APP/Contents/MacOS/Whisper Dictate" >/dev/null 2>&1 &
+run_isolated >"$TEST_ROOT/model-console.log" 2>&1 &
 APP_PID=$!
 LOADED=0
 for _ in $(seq 1 90); do
@@ -223,6 +265,7 @@ for _ in $(seq 1 90); do
 done
 kill "$APP_PID" 2>/dev/null || true
 wait "$APP_PID" 2>/dev/null || true
+APP_PID=""
 
 if [ "$LOADED" = "1" ]; then
     grep -E "ready on|MacOS GPU|MPS|Model loaded" "$DATA_DIR/dictate.log" | head -3 | sed 's/^/    /'
@@ -256,6 +299,8 @@ MSG
     fi
     xcrun stapler staple "$APP"
     xcrun stapler validate "$APP"
+    codesign --verify --deep --strict --verbose=2 "$APP"
+    spctl --assess --type execute --verbose=2 "$APP"
     rm -f "$ZIP_FOR_NOTARY"
     echo "==> Notarized and stapled"
 fi
@@ -264,7 +309,15 @@ fi
 
 if [ "$OPT_ZIP" = "1" ]; then
     VERSION="$("$VENV_PY" -c "print('1.1.0')")"
-    OUT="$DIST_DIR/WhisperDictate-$VERSION-macos-arm64.zip"
+    SUFFIX=""
+    if [ "$OPT_NOTARIZE" != "1" ]; then
+        if [ "$OPT_SIGN" = "1" ]; then
+            SUFFIX="-signed-preview"
+        else
+            SUFFIX="-unsigned-preview"
+        fi
+    fi
+    OUT="$DIST_DIR/WhisperDictate-$VERSION-macos-arm64$SUFFIX.zip"
     rm -f "$OUT"
     ditto -c -k --keepParent "$APP" "$OUT"
     shasum -a 256 "$OUT" | awk '{print $1}' > "$OUT.sha256"
@@ -274,7 +327,8 @@ fi
 
 echo
 echo "Built: $APP"
-if [ "$OPT_SIGN" != "1" ]; then
-    echo "This is an UNSIGNED development build: first launch needs"
-    echo "  right-click > Open   (or: xattr -dr com.apple.quarantine \"$APP\")"
+if [ "$OPT_NOTARIZE" = "1" ]; then
+    echo "Release gates passed: signed, notarized, stapled, Gatekeeper accepted."
+else
+    echo "PREVIEW ONLY: not notarized; not release-ready or approved for distribution."
 fi
