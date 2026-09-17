@@ -84,3 +84,7 @@ iOS
 App Store
 Stripe
 TSM
+JEV core
+Vercel
+Banana Pi
+Hacker News

@@ -49,3 +49,21 @@ lagerbrecht => Konzernlagebericht
 recall minus app => recall-app
 sub agent => sub agents
 ECOSU => accuracy
+
+# User-confirmed mishearings (2026-09-17)
+# Intentional preference: also changes literal "I want it to" statements.
+I want it to => I want you to
+Jeff core => JEV core
+Jef core => JEV core
+J E F core => JEV core
+J E V core => JEV core
+Jev core => JEV core
+
+# Additional unambiguous variants observed in history
+backer minus performant => Becker-performant
+back or minus performant => Becker-performant
+becker-performance => Becker-performant
+backer ETL => Becker ETL
+banana pie => Banana Pi
+verse cell CLI => Vercel CLI
+Hiker News => Hacker News
