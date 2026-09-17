@@ -1,0 +1,87 @@
+[
+  {
+    "id": "message-chime",
+    "author": "AnthonyRox",
+    "sound_id": 740423,
+    "source_page": "https://freesound.org/people/AnthonyRox/sounds/740423/",
+    "preview_url": "https://cdn.freesound.org/previews/740/740423_2675894-hq.mp3",
+    "license": "CC0-1.0",
+    "downloads": 3639,
+    "observed": "2026-09-17",
+    "source_sha256": "7bca7f3d2613a3d81c906d1df2a4c6acfb312845b484f35f7cf921f79c11efc8",
+    "files": {
+      "message-chime-start.wav": "2c6417125cda32e85366ebdb923fde9b5bb82e0d5e03fc73116a77ac0e528e79",
+      "message-chime-stop.wav": "fbb2a9281db78b217d994f2f529483d2da43cafb75987e14fbcc531a69228644",
+      "message-chime-done.wav": "21b34024099a776300b817f23c6acaf00412f9a8a941ffb67e83a6dce94348c6",
+      "message-chime-undo.wav": "ffc54cf03f2ec8ce276c0c01a39201469f65571db7b2ad1aa6eec59371cc3808"
+    }
+  },
+  {
+    "id": "message-tone",
+    "author": "AnthonyRox",
+    "sound_id": 740420,
+    "source_page": "https://freesound.org/people/AnthonyRox/sounds/740420/",
+    "preview_url": "https://cdn.freesound.org/previews/740/740420_2675894-hq.mp3",
+    "license": "CC0-1.0",
+    "downloads": 1785,
+    "observed": "2026-09-17",
+    "source_sha256": "deddc65385b21195eec46fb3910b0692c260a9f6438febee32d6ab6875867a26",
+    "files": {
+      "message-tone-start.wav": "5dab099603b6ea5eb555237afd1168f4c51710363157215dfbae52bba015bc60",
+      "message-tone-stop.wav": "54d18dfbc8d3cd513550955af36974a62ed194e40924f79c0aa1853db19eec2c",
+      "message-tone-done.wav": "107438bfedce42e119465ab27f67687b93ced750cba6dca2e12acd2a4032ff94",
+      "message-tone-undo.wav": "23b536b5d221b63cf93760aef3476cb285a1572aa096fbee65929d3512c06e09"
+    }
+  },
+  {
+    "id": "high-bell",
+    "author": "LegitCheese",
+    "sound_id": 571512,
+    "source_page": "https://freesound.org/people/LegitCheese/sounds/571512/",
+    "preview_url": "https://cdn.freesound.org/previews/571/571512_2226836-hq.mp3",
+    "license": "CC0-1.0",
+    "downloads": 1441,
+    "observed": "2026-09-17",
+    "source_sha256": "a36f0305d3f440dd0c306cf0b53e281e07ccae602830f52061706551d30d84be",
+    "files": {
+      "high-bell-start.wav": "a5789c509eeba7ce2eaa94ddba8e88081737ece7ef0f205b9dca559d8c32a9d2",
+      "high-bell-stop.wav": "4d1a715cdbd4adc10560b75c20b01ba5395c37db35ea63874b9db1149c0c6f40",
+      "high-bell-done.wav": "964bfc79312c6ad94eadff5458354ab572b723a68ca66b3b50bcedf9bc9dc983",
+      "high-bell-undo.wav": "2c296f28f103bcba60ddd52e88cb74e33ade8fa10370fda2bfa2e93eea23e995"
+    }
+  },
+  {
+    "id": "double-bell",
+    "author": "LegitCheese",
+    "sound_id": 571513,
+    "source_page": "https://freesound.org/people/LegitCheese/sounds/571513/",
+    "preview_url": "https://cdn.freesound.org/previews/571/571513_2226836-hq.mp3",
+    "license": "CC0-1.0",
+    "downloads": 1090,
+    "observed": "2026-09-17",
+    "source_sha256": "de3aedd444fb21e4c46bb581f069a6e3fdd98afc475d2bf235939a0452e7fcc6",
+    "files": {
+      "double-bell-start.wav": "59525fcf94a4fb42722f60ef3209cb5f3312ac3b58dc456ee8ad307e6673d37c",
+      "double-bell-stop.wav": "08e23e8f499abcab70b0e4e4361504cdc042729affcd1191a6011e33457ec1e2",
+      "double-bell-done.wav": "236d1cc2b21465be2259b160e052c0cc4fce4b0ebf58d197576dd8f605083f5b",
+      "double-bell-undo.wav": "eae6b74dac1e406f2dcd630c2efe78022ebd82115c9a9450da9b8f0cfaf9fc40"
+    }
+  },
+  {
+    "id": "low-bell",
+    "author": "LegitCheese",
+    "sound_id": 571511,
+    "source_page": "https://freesound.org/people/LegitCheese/sounds/571511/",
+    "preview_url": "https://cdn.freesound.org/previews/571/571511_2226836-hq.mp3",
+    "license": "CC0-1.0",
+    "downloads": 709,
+    "observed": "2026-09-17",
+    "source_sha256": "b148e9cee83f5b56628db9846b49bcb4a8b5b18de455637338a5014f879ab443",
+    "files": {
+      "low-bell-start.wav": "dbcc44fd4bf6d72cd632ae35d96078e28abc214ba5b1b419ef4583d38d7eca2a",
+      "low-bell-stop.wav": "93f426e3e031929e4075f56b7ef9012ebd5ea20d9da0d9d971efd1616a0ae32a",
+      "low-bell-done.wav": "ec2656d5ea454d0062ad48d3bb2fec3313db7c5caf4fce5041522a274a381d08",
+      "low-bell-undo.wav": "9727a3e92e90827442c4f69ff97e0a2bfb951c269312563778769d35eb6a5d57"
+    }
+  }
+]

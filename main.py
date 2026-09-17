@@ -18,6 +18,8 @@ import pystray
 import sounddevice as sd
 from PIL import Image, ImageDraw
 
+from sound_cues import DEFAULT_THEME, SoundPlayer, build_sound_menu
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 APP_NAME = "Whisper Dictate"
@@ -170,6 +172,7 @@ DEFAULTS = {
     "beam_size": 5,
     "type_newline": True,
     "sound": True,
+    "sound_theme": DEFAULT_THEME,
     "paste_last_hotkey": ["ctrl", "shift", "f12"],
     "scratch_hotkey": ["ctrl", "shift", "f13"],
     "fuzzy_hotwords": True,
@@ -453,21 +456,11 @@ def log(msg):
         pass
 
 
-def beep(freq, dur=90):
-    if not cfg.get("sound"):
-        return
-    try:
-        if sys.platform == "win32":
-            import winsound
+sound_player = SoundPlayer(BASE_DIR)
 
-            winsound.Beep(freq, dur)
-        elif OVERLAY_ROOT is not None:
-            OVERLAY_ROOT.bell()
-        else:
-            sys.stdout.write("\a")
-            sys.stdout.flush()
-    except Exception:
-        pass
+
+def play_cue(event):
+    sound_player.play(cfg, event)
 
 
 def show_state(state, profile=None, detail=""):
@@ -844,7 +837,7 @@ def start_recording(profile):
         frames.clear()
     recording["active"] = True
     recording["profile"] = profile
-    beep(880)
+    play_cue("start")
     show_state("listening", profile)
     log(f"[{profile.name}] Recording... release {profile.hotkey_str()} to transcribe")
     # The model may have been dropped after the idle timeout: start loading it
@@ -866,7 +859,7 @@ def stop_recording():
     recording["stopped"] = time.time()
     _pending["seq"] = recording["seq"]
     _pending["profile"] = profile
-    beep(440)
+    play_cue("stop")
     log(f"[{profile.name}] Recording stopped")
     timer = threading.Timer(
         CAPTURE_TAIL_DRAIN_S, _finish_recording, args=(recording["seq"], profile)
@@ -1076,7 +1069,7 @@ def transcribe_thread(profile, buf):
         STATUS_QUEUE.put(("new_text",))
         show_state("typing", profile)
         type_text(text)
-        beep(1320)
+        play_cue("done")
     except Exception as e:
         done.set()
         show_state("error", profile)
@@ -1172,7 +1165,7 @@ def scratch_last():
     log(f"Scratching last transcription ({count} characters)")
     try:
         _send_backspaces(count)
-        beep(220)
+        play_cue("undo")
     except Exception as exc:
         log(f"Scratch failed: {exc}")
 
@@ -1187,7 +1180,7 @@ def paste_last(icon=None, item=None):
     profile = last_profile if last_profile is not None else profiles[0]
     show_state("typing", profile)
     type_text(last_text)
-    beep(1320)
+    play_cue("done")
     log("Re-pasted last transcription")
 
 
@@ -1485,6 +1478,11 @@ def main():
     menu = pystray.Menu(
         *_hotkey_menu_items(),
         pystray.MenuItem("Paste last transcription", paste_last),
+        pystray.MenuItem("Sounds", build_sound_menu(
+            pystray.Menu, pystray.MenuItem, cfg,
+            os.path.join(BASE_DIR, "config.json"), sound_player,
+            lambda icon, message: icon.notify(message, APP_NAME) if icon else log(message),
+        )),
         pystray.MenuItem("Show microphone devices", _open_audio_settings),
         pystray.MenuItem("Reload hotwords", reload_hotwords),
         pystray.MenuItem("Unload models now", unload_models_now),

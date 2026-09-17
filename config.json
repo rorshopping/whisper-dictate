@@ -7,6 +7,7 @@
   "beam_size": 5,
   "type_newline": true,
   "sound": true,
+  "sound_theme": "message-chime",
   "history_enabled": true,
   "history_hotkey": ["ctrl", "shift", "f11"],
   "scratch_hotkey": ["ctrl", "shift", "f13"],

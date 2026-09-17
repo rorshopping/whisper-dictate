@@ -35,6 +35,32 @@ the current state and both hotkeys, so you never forget them.
 - System tray icon with menu (hotkey reference, reload hotwords, unload
   models, quit)
 
+## Feedback sounds
+
+Right-click the tray icon → **Sounds** for five quieter, sample-based choices.
+**Message chime** replaces the old system beep as the default. Selecting a
+sound previews it immediately and saves it to `config.json`; **Off** mutes all
+cues, and **Preview selected sound** replays the completion cue.
+
+Choices are ordered by **Freesound source-file downloads** (snapshot:
+September 17, 2026), among our curated shortlist—not a global popularity chart:
+
+1. Message chime — 3,639 downloads (**default**)
+2. Message tone — 1,785
+3. Soft high bell — 1,441
+4. Soft double bell — 1,090
+5. Soft low bell — 709
+
+Each has distinct short start, stop, completion, and undo variants. Playback
+is non-blocking and fully offline. All source samples are CC0; see
+[`assets/sounds/SOURCES.md`](assets/sounds/SOURCES.md) for links, licensing,
+ranking methodology and adaptations. A restart is needed after installing
+this code update; subsequent menu changes take effect immediately.
+
+Config keys: `sound` (boolean, default `true`) and `sound_theme` (default
+`"message-chime"`; alternatives `"message-tone"`, `"high-bell"`,
+`"double-bell"`, `"low-bell"`). Existing `sound: false` preferences are honored.
+
 ## Requirements
 
 - Python 3.12 (3.13+ may be too new for the CUDA bridge, ctranslate2)
@@ -76,8 +102,8 @@ dictating. Exit code is `1` when any check fails.
 
 ## Setup (macOS)
 
-The app has non-Windows code paths (file lock instead of mutex, beep via
-terminal bell, no taskbar/toolwindow attributes). To run on a Mac:
+The app has non-Windows code paths (file lock instead of mutex, sound files
+via `afplay`, no taskbar/toolwindow attributes). To run on a Mac:
 
 ```bash
 chmod +x run_mac.sh
