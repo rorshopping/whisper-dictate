@@ -41,6 +41,10 @@ the current state and both hotkeys, so you never forget them.
 - **Voice shortcuts**: `snippets-en.txt` / `snippets-de.txt` map spoken
   triggers to full-text expansions (`my email => richard@example.com`), with a
   gitignored `*.local.txt` next to each for private snippets.
+- **Voice commands (Command Mode)**: hold `Ctrl+Shift+F10`, say one command
+  ("press enter", "select all", "undo that", …), release — the keystrokes run
+  in the focused window instead of the words being typed. See
+  [Voice commands](#voice-commands-command-mode).
 - Status pill that only appears while something is happening (loading /
   listening / transcribing / typing / error) and hides itself when idle —
   every hotkey is listed in the tray menu instead
@@ -114,6 +118,26 @@ the trigger, the full expansion is typed instead. Personal snippets (emails,
 addresses, boilerplate) belong in a gitignored `snippets-*.local.txt` next to
 the tracked file — both are merged. Edit either file and use the tray menu
 "Reload hotwords & snippets" — no restart needed.
+
+## Voice commands (Command Mode)
+
+Wispr Flow's Command Mode, fully offline: hold the command hotkey (default
+`Ctrl+Shift+F10`, config `command_hotkey`), speak one phrase, release. The
+transcript is matched exactly against the table below — no model, no cloud —
+and the keystrokes run in whatever window is focused. It uses the engine of
+your last dictation, so the German phrases work after dictating in German.
+
+| Say (EN) | Say (DE) | Effect |
+|---|---|---|
+| press enter / press tab / press escape / press backspace | Enter/Tab/Escape drücken | taps the key |
+| select all | alles auswählen, alles markieren | Ctrl+A |
+| copy that / cut that / paste | kopieren / ausschneiden / einfügen | Ctrl+C / Ctrl+X / Ctrl+V |
+| undo that / redo that | rückgängig / wiederholen | Ctrl+Z / Ctrl+Y |
+| delete last word | letztes Wort löschen | Ctrl+Backspace |
+
+Anything that matches no phrase is typed as normal dictation, so a misheard
+command never loses the words. Config: `voice_commands` (default `true`) and
+`command_hotkey` (default `["ctrl", "shift", "f10"]`; `[]` disables it).
 
 ## Requirements
 

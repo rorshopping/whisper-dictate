@@ -252,6 +252,16 @@ def _wrap_scratch_last(main_mod):
     main_mod.scratch_last = scratch_last
 
 
+def _wrap_tap_keys(main_mod):
+    original = main_mod._tap_keys
+
+    def _tap_keys(action):
+        """main._tap_keys (voice-command keystrokes) on the Tk main thread."""
+        _run_on_ui(lambda: original(action))
+
+    main_mod._tap_keys = _tap_keys
+
+
 # --- paste target and Cmd+V injection ---------------------------------------
 
 
@@ -478,6 +488,7 @@ def install():
     _apply("main-thread paste", lambda: _wrap_type_text(main_mod))
     _apply("Cmd+V injection", lambda: _patch_controller(main_mod))
     _apply("scratch-that", lambda: _wrap_scratch_last(main_mod))
+    _apply("voice command keys", lambda: _wrap_tap_keys(main_mod))
     _apply("paste target tracking", lambda: _wrap_start_recording(main_mod))
     _apply("Apple GPU default", lambda: _prefer_apple_gpu(main_mod))
     _apply("Apple GPU fallback", lambda: _wrap_get_model(main_mod))

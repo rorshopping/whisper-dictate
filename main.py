@@ -178,6 +178,8 @@ DEFAULTS = {
     "fuzzy_hotwords": True,
     "fuzzy_hotword_min_score": 85,
     "voice_shortcuts": True,
+    "voice_commands": True,
+    "command_hotkey": ["ctrl", "shift", "f10"],
     "smart_format": True,
     "smart_fillers": True,
     "smart_spoken_punctuation": True,
@@ -370,6 +372,52 @@ def _smart_format(text, profile):
         return text
 
 
+_KEY_ALIASES = {"escape": "esc"}  # speak "escape", pynput calls it Key.esc
+
+
+def _key_obj(name):
+    if name in _KEY_ALIASES:
+        name = _KEY_ALIASES[name]
+    if name in ("ctrl", "alt", "shift") or hasattr(pkb.Key, name):
+        return getattr(pkb.Key, name)
+    return name  # plain characters (pynput taps them via KeyCode)
+
+
+def _tap_keys(action):
+    """Tap one key (str) or press modifier(s), tap the last key, release."""
+    ctrl = pkb.Controller()
+    keys = (action,) if isinstance(action, str) else action
+    for mod in keys[:-1]:
+        ctrl.press(_key_obj(mod))
+    try:
+        ctrl.tap(_key_obj(keys[-1]))
+    finally:
+        for mod in reversed(keys[:-1]):
+            ctrl.release(_key_obj(mod))
+
+
+def execute_voice_command(text, profile):
+    """Run a voice-command phrase as keystrokes; True if text was a command."""
+    if not VOICE_COMMANDS_ENABLED:
+        return False
+    try:
+        from voice_commands import match
+
+        action = match(text, profile.language)
+    except Exception as exc:
+        log(f"Voice command matching failed: {exc}")
+        return False
+    if not action:
+        return False
+    log(f"[{profile.name}] Voice command '{text}' -> {action}")
+    try:
+        _tap_keys(action)
+        return True
+    except Exception as exc:
+        log(f"Voice command execution failed: {exc}")
+        return False
+
+
 def _display_key(k):
     return {
         "ctrl": "Ctrl",
@@ -447,6 +495,8 @@ model_lock = threading.Lock()
 recording = {
     "active": False,
     "profile": None,
+    "command": False,  # command-mode recording: match a phrase, run keystrokes
+    "combo": None,     # the key set that started this recording
     "until": 0.0,      # epoch time: keep capturing through the post-release drain
     "seq": 0,          # bumped on every start; aborts a stale drain finalizer
     "started": 0.0,    # epoch time of hotkey press (for stall accounting)
@@ -462,7 +512,7 @@ frames_lock = threading.Lock()
 CAPTURE_TAIL_DRAIN_S = 0.5
 # Set while a recording waits for its drain; lets a fast re-press finalize the
 # previous dictation immediately instead of losing it.
-_pending = {"seq": None, "profile": None}
+_pending = {"seq": None, "profile": None, "command": False}
 _finish_lock = threading.Lock()
 pressed = set()
 last_text = None
@@ -473,6 +523,10 @@ scratch_fired = False
 PASTE_LAST_HOTKEY = list(cfg.get("paste_last_hotkey") or [])
 # Erase-the-last-dictation hotkey ("scratch that").
 SCRATCH_HOTKEY = list(cfg.get("scratch_hotkey") or [])
+# Hold-to-command hotkey: speak one phrase from voice_commands.COMMANDS, it is
+# executed as keystrokes in the focused app instead of being typed.
+COMMAND_HOTKEY = list(cfg.get("command_hotkey") or [])
+VOICE_COMMANDS_ENABLED = bool(cfg.get("voice_commands", True))
 # Fuzzy hotword reconciliation after transcription (see hotword_fuzzy).
 FUZZY_HOTWORDS = bool(cfg.get("fuzzy_hotwords", True))
 FUZZY_HOTWORD_MIN_SCORE = int(cfg.get("fuzzy_hotword_min_score", 85))
@@ -834,6 +888,16 @@ def on_press(key):
             start_recording(p)
             return
     if (
+        COMMAND_HOTKEY
+        and VOICE_COMMANDS_ENABLED
+        and set(COMMAND_HOTKEY) <= pressed
+    ):
+        # Command mode keeps the language of the last dictation, so commands
+        # are matched in whichever language the user dictates in.
+        profile = last_profile if last_profile is not None else profiles[0]
+        start_recording(profile, command=True)
+        return
+    if (
         PASTE_LAST_HOTKEY
         and not paste_last_fired
         and set(PASTE_LAST_HOTKEY) <= pressed
@@ -857,8 +921,10 @@ def on_release(key):
             fn(n)
         except Exception as exc:
             log(f"Key release listener failed: {exc}")
-    if recording["active"] and not (set(recording["profile"].hotkey) <= pressed):
-        stop_recording()
+    if recording["active"]:
+        combo = recording.get("combo") or set(recording["profile"].hotkey)
+        if not (combo <= pressed):
+            stop_recording()
     if not set(PASTE_LAST_HOTKEY) <= pressed:
         paste_last_fired = False
     if not set(SCRATCH_HOTKEY) <= pressed:
@@ -882,19 +948,24 @@ def audio_callback(indata, frames_cnt, time_info, status):
             frames.append(indata[:, 0].copy())
 
 
-def start_recording(profile):
+def start_recording(profile, command=False):
     _flush_pending()
     recording["seq"] += 1
     recording["until"] = 0.0
     recording["started"] = time.time()
     recording["overflow_logged"] = False
+    recording["command"] = command
+    recording["combo"] = set(COMMAND_HOTKEY) if command else set(profile.hotkey)
     with frames_lock:
         frames.clear()
     recording["active"] = True
     recording["profile"] = profile
     play_cue("start")
     show_state("listening", profile)
-    log(f"[{profile.name}] Recording... release {profile.hotkey_str()} to transcribe")
+    if command:
+        log(f"[{profile.name}] Command recording... release {profile.hotkey_str()} to run a voice command")
+    else:
+        log(f"[{profile.name}] Recording... release {profile.hotkey_str()} to transcribe")
     # The model may have been dropped after the idle timeout: start loading it
     # now, while the user is still speaking, so a release only has to decode
     # the audio instead of waiting for the load first.
@@ -909,30 +980,35 @@ def start_recording(profile):
 
 def stop_recording():
     profile = recording["profile"]
+    command = recording.get("command", False)
     recording["active"] = False
     recording["until"] = time.time() + CAPTURE_TAIL_DRAIN_S
     recording["stopped"] = time.time()
     _pending["seq"] = recording["seq"]
     _pending["profile"] = profile
+    _pending["command"] = command
     play_cue("stop")
     log(f"[{profile.name}] Recording stopped")
     timer = threading.Timer(
-        CAPTURE_TAIL_DRAIN_S, _finish_recording, args=(recording["seq"], profile)
+        CAPTURE_TAIL_DRAIN_S,
+        _finish_recording,
+        args=(recording["seq"], profile, command),
     )
     timer.daemon = True
     timer.start()
 
 
-def _finish_recording(seq, profile):
+def _finish_recording(seq, profile, command=False):
     with _finish_lock:
         if _pending["seq"] != seq:
             return  # already finalized early by a new hotkey press
         _pending["seq"] = None
         _pending["profile"] = None
+        _pending["command"] = False
         with frames_lock:
             buf = list(frames)
             frames.clear()
-    _transcribe_captured(profile, buf)
+    _transcribe_captured(profile, buf, command)
 
 
 def _flush_pending():
@@ -945,17 +1021,19 @@ def _flush_pending():
     with _finish_lock:
         seq = _pending["seq"]
         profile = _pending["profile"]
+        command = _pending["command"]
         if seq is None:
             return
         _pending["seq"] = None
         _pending["profile"] = None
+        _pending["command"] = False
         with frames_lock:
             buf = list(frames)
             frames.clear()
-    _transcribe_captured(profile, buf)
+    _transcribe_captured(profile, buf, command)
 
 
-def _transcribe_captured(profile, buf):
+def _transcribe_captured(profile, buf, command=False):
     hold = recording.get("stopped", 0) - recording.get("started", 0)
     captured = sum(len(b) for b in buf) / cfg["samplerate"]
     if hold > 0 and hold - captured > 0.15:
@@ -967,7 +1045,9 @@ def _transcribe_captured(profile, buf):
     if not buf:
         show_state("ready")
         return
-    threading.Thread(target=transcribe_thread, args=(profile, buf), daemon=True).start()
+    threading.Thread(
+        target=transcribe_thread, args=(profile, buf, command), daemon=True
+    ).start()
 
 
 def get_model(profile):
@@ -1072,7 +1152,7 @@ def _model_idle_watchdog():
             )
 
 
-def transcribe_thread(profile, buf):
+def transcribe_thread(profile, buf, command=False):
     global last_text, last_profile
     try:
         audio = np.concatenate(buf) if buf else np.zeros(0, dtype=np.float32)
@@ -1115,6 +1195,13 @@ def transcribe_thread(profile, buf):
         )
         if not text:
             return
+        # Command mode: a known phrase runs keystrokes instead of being typed.
+        # Unknown phrases fall through and are typed as normal dictation.
+        if command and execute_voice_command(text, profile):
+            play_cue("done")
+            return
+        if command:
+            log(f"[{profile.name}] Command mode: '{text}' matched no command, typing it")
         last_text = text
         last_profile = profile
         # Add-ons (e.g. history) see the final text before it is typed.
@@ -1369,6 +1456,7 @@ def run_doctor():
     hotkeys = [(f"profile {p.name}", p.hotkey) for p in profiles]
     hotkeys.append(("paste last", PASTE_LAST_HOTKEY))
     hotkeys.append(("scratch that", SCRATCH_HOTKEY))
+    hotkeys.append(("command mode", COMMAND_HOTKEY))
     hotkeys.append(("history", list(cfg.get("history_hotkey") or [])))
     seen, dups = {}, []
     for label, combo in hotkeys:
@@ -1438,6 +1526,8 @@ def _hotkey_menu_items():
             )
         )
     extras = [("Paste last", PASTE_LAST_HOTKEY), ("Scratch that", SCRATCH_HOTKEY)]
+    if VOICE_COMMANDS_ENABLED and COMMAND_HOTKEY:
+        extras.append(("Command mode", COMMAND_HOTKEY))
     if cfg.get("history_enabled", True):
         extras.append(("History", list(cfg.get("history_hotkey") or [])))
     for label, keys in extras:
