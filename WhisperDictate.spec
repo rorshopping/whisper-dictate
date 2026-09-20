@@ -66,3 +66,25 @@ coll = COLLECT(
     upx=False,
     name='WhisperDictate',
 )
+
+# macOS only: wrap the collect output into a proper, double-clickable .app
+# bundle with the usage descriptions Gatekeeper/mic access require.
+import platform
+if platform.system() == "Darwin":
+    app = BUNDLE(
+        coll,
+        name='WhisperDictate.app',
+        bundle_identifier='com.beckerhub.whisperdictate',
+        info_plist={
+            'CFBundleDisplayName': 'Whisper Dictate',
+            'CFBundleName': 'Whisper Dictate',
+            'NSMicrophoneUsageDescription': (
+                'Whisper Dictate records audio only while you hold the '
+                'push-to-talk hotkey; nothing ever leaves this Mac.'
+            ),
+            'NSAppleEventsUsageDescription': (
+                'Whisper Dictate pastes dictated text and sends keystrokes '
+                'to the app you are dictating into.'
+            ),
+        },
+    )
