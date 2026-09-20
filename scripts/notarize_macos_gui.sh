@@ -76,9 +76,18 @@ codesign --verify --deep --strict "$APP" || FAIL "signature invalid"
 echo "STEP-sign-DONE"
 
 # --- notarize + staple ----------------------------------------------------------
-xcrun notarytool submit "$APP" --keychain-profile "whisper-dictate" --wait 2>&1 | tail -3 || FAIL "notarization"
+# notarytool requires a zip; the ASC API key avoids any keychain dependency.
+ISSUER=$(/usr/bin/python3 -c "import json;print(json.load(open('$HOME/.secrets/asc_key.json'))['issuer_id'])")
+KEYPATH=$HOME/.appstoreconnect/private_keys/AuthKey_BP3N265886.p8
+UPLOAD=/tmp/wd_notarize_upload.zip
+ditto -c -k --sequesterRsrc --keepParent "$APP" "$UPLOAD" || FAIL "zip for upload"
+xcrun notarytool submit "$UPLOAD" \
+    --key "$KEYPATH" --key-id BP3N265886 --issuer "$ISSUER" \
+    --wait 2>&1 | tail -4 || FAIL "notarization"
 xcrun stapler staple "$APP" || FAIL "staple"
+echo "=== spctl verdict:"
 spctl -a -vv -t exec "$APP" 2>&1 | head -2
+xcrun stapler validate "$APP" || FAIL "staple validate"
 echo "STEP-notarize-DONE"
 
 # --- archive --------------------------------------------------------------------
