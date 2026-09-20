@@ -347,9 +347,10 @@ Common notes:
   [GitHub Releases](https://github.com/rorshopping/whisper-dictate/releases/latest),
   a year of updates, and a 14-day money-back guarantee. Payments are
   processed by Stripe (setup documented in [STRIPE.md](STRIPE.md)).
-- **License terms**: the [License Agreement](LICENSE) — running the Software
-  requires a license for everyone except the copyright holder; versions
-  published before 2026-09-20 were MIT. Third-party packages and model
+- **License terms**: [PolyForm Free Trial 1.0.0](LICENSE) — evaluation is
+  free for up to 31 days; continued use requires the paid license for
+  everyone except the copyright holder. Versions published before
+  2026-09-20 were MIT. Third-party packages and model
   weights keep their own licenses, documented in
   [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 - **Packaged builds**: tag a `v*` release and GitHub Actions builds
