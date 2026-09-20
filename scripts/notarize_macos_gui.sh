@@ -12,7 +12,7 @@ cd ~/target || FAIL "no ~/target"
 
 # --- clone the exact release tag ---------------------------------------------
 rm -rf whisperdictate-rel
-git clone --depth 1 --branch master https://github.com/rorshopping/whisper-dictate.git whisperdictate-rel 2>&1 | tail -1
+git clone --depth 1 --branch v1.0.2 https://github.com/rorshopping/whisper-dictate.git whisperdictate-rel 2>&1 | tail -1
 cd whisperdictate-rel || FAIL "clone"
 [ -f WhisperDictate.spec ] || FAIL "spec missing"
 echo "STEP-clone-DONE"
@@ -82,7 +82,7 @@ spctl -a -vv -t exec "$APP" 2>&1 | head -2
 echo "STEP-notarize-DONE"
 
 # --- archive --------------------------------------------------------------------
-ditto -c -k --sequesterRsrc --keepParent "$APP" ~/target/WhisperDictate-v1.0.1-macos-arm64-notarized.zip || FAIL "zip"
-shasum -a 256 ~/target/WhisperDictate-v1.0.1-macos-arm64-notarized.zip
+ditto -c -k --sequesterRsrc --keepParent "$APP" ~/target/WhisperDictate-v1.0.2-macos-arm64-notarized.zip || FAIL "zip"
+shasum -a 256 ~/target/WhisperDictate-v1.0.2-macos-arm64-notarized.zip
 echo "STEP-zip-DONE"
 echo "ALL-DONE"
