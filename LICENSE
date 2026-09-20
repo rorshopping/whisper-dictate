@@ -1,21 +1,52 @@
-MIT License
+Whisper Dictate — Community & Commercial License
+================================================
 
-Copyright (c) 2026 Richard
+Copyright (c) 2026 Richard Bäcker. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This license covers the Whisper Dictate source code, build scripts, and
+documentation in this repository (the "Software").
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. Personal use — free
+   You may use, study, and modify the Software, and run it on machines you
+   own or control, free of charge for personal, non-commercial purposes.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. Commercial use — paid
+   Any commercial use of the Software — use by or for a business or
+   organization, use as part of paid work, or redistribution of builds —
+   requires a commercial license, available at
+   https://whisperdictate.vercel.app (EUR 20 per user per year). A purchase
+   covers one named user for twelve months and includes updates published
+   during that period.
+
+3. Redistribution
+   You may not redistribute, resell, sublicense, or host the Software or
+   application builds of it (modified or unmodified), except for:
+   (a) modified copies for your own personal use under section 1, and
+   (b) contributions submitted upstream to the official repository.
+
+4. Third-party components and models
+   The Software depends on open-source libraries and open model weights
+   whose own licenses apply to those components; they are preserved and
+   listed in THIRD-PARTY-NOTICES.md. Nothing in this license restricts
+   what those licenses grant for the components themselves. The NVIDIA
+   Nemotron speech models are fetched at first run directly from their
+   publisher and are governed by their own licenses (NVIDIA Open Model
+   License; OpenMDW-1.1) — see THIRD-PARTY-NOTICES.md.
+
+5. Warranty and liability
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+   IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY
+   CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+   TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+   SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+6. Historical versions
+   Versions of this repository published before 2026-09-20 were licensed
+   under the MIT License, and that license continues to apply to those
+   historical versions as they were published.
+
+7. Copyright holder
+   The copyright holder may use the Software without restriction.
+   Contact for commercial licenses and questions: see the website above.

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy — Whisper Dictate</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<nav>
+  <div class="wrap">
+    <a class="logo" href="/">
+      <svg width="22" height="22" viewBox="0 0 64 64"><rect x="26" y="8" width="12" height="26" rx="6" fill="#34d399"/><path d="M16 30a16 16 0 0 0 32 0" stroke="#22d3ee" stroke-width="5" fill="none" stroke-linecap="round"/><path d="M32 46v10M22 56h20" stroke="#22d3ee" stroke-width="5" stroke-linecap="round"/></svg>
+      Whisper&nbsp;Dictate
+    </a>
+    <div class="links"><a href="https://github.com/rorshopping/whisper-dictate">GitHub</a></div>
+  </div>
+</nav>
+
+<div class="legal">
+  <h1>Privacy Policy</h1>
+  <p>Last updated: September 20, 2026</p>
+
+  <h2>The short version</h2>
+  <p>Your voice never leaves your computer. The app transcribes audio locally on your own GPU/CPU. There is no server, no telemetry, no analytics and no account.</p>
+
+  <h2>The app</h2>
+  <ul>
+    <li>Audio is recorded only while you hold the hotkey and is processed on your machine.</li>
+    <li>Transcription runs locally using NVIDIA Nemotron open models; nothing is uploaded.</li>
+    <li>A local history file (<code>transcription-history.jsonl</code>) and log file stay on your machine; both are yours to delete.</li>
+    <li>The only network traffic is the one-time download of the speech models (~2.4 GB per language) from Hugging Face when you first use a language.</li>
+  </ul>
+
+  <h2>This website</h2>
+  <p>This site is fully static: no cookies, no analytics, no tracking, no external fonts or scripts beyond what is listed in the page source.</p>
+
+  <h2>Payments</h2>
+  <p>If you buy Pro, the payment is processed by Stripe. We receive your email address and payment status from Stripe (to deliver the license and receipts) and nothing else. Stripe's own handling of payment data is governed by the <a href="https://stripe.com/privacy">Stripe Privacy Policy</a>. Payment card details never reach us.</p>
+
+  <h2>Your rights (GDPR)</h2>
+  <p>Controller: Richard Bäcker, Becker-Codehub — see the <a href="/impressum">imprint</a>. Since we process almost no personal data, there is little to access, correct or delete — but if you bought a license you can request your Stripe-stored data or its deletion at any time by email. You may also complain to your local data protection authority.</p>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 Richard Bäcker · Becker-Codehub</span>
+    <div class="right">
+      <a href="/">Home</a><a href="/terms">Terms</a><a href="/impressum">Imprint</a>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

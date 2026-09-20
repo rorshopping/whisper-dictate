@@ -5223,3 +5223,23 @@ This application is distributed with the CPython interpreter
   BSD-style license permitting redistribution in source and binary form.
   The full text is available at https://docs.python.org/3/license.html
   and ships with the interpreter.
+
+---
+
+## Speech models (downloaded at first run, not redistributed with the app)
+
+The app downloads speech models directly from Hugging Face at first use of a
+language. The weights are not bundled with, or redistributed by, Whisper
+Dictate; they are fetched from the publisher so each user receives them
+directly. Their licenses apply to anyone using the models:
+
+- `nvidia/nemotron-speech-streaming-en-0.6b` (English profile) —
+  NVIDIA Open Model License. Commercial use is permitted. Required notice:
+  "Licensed by NVIDIA Corporation under the NVIDIA Open Model License."
+  License: https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-open-model-license/
+- `nvidia/nemotron-3.5-asr-streaming-0.6b` (German profile) — OpenMDW-1.1.
+  Commercial use is permitted; outputs are unrestricted. License:
+  https://openmdw.ai/license/1-1/
+
+If a future distribution ever bundles model weights, the full license texts
+and required notices must be included in that distribution.

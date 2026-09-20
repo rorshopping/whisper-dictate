@@ -20,7 +20,12 @@ from PIL import Image, ImageDraw
 
 from sound_cues import DEFAULT_THEME, SoundPlayer, build_sound_menu
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, "frozen", False):
+    # PyInstaller build: keep writable files (config, log, personal vocab)
+    # next to the real exe, not inside the read-only _internal bundle dir.
+    BASE_DIR = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 APP_NAME = "Whisper Dictate"
 
@@ -230,16 +235,30 @@ def load_config():
     return cfg
 
 
+def _resource_path(path):
+    """Read-only bundled resources: an exe-dir copy wins over the shipped one."""
+    if os.path.isabs(path):
+        return path
+    candidates = [os.path.join(BASE_DIR, path)]
+    meipass = getattr(sys, "_MEIPASS", None)
+    if getattr(sys, "frozen", False) and meipass:
+        candidates.append(os.path.join(meipass, path))
+    for cand in candidates:
+        if os.path.exists(cand):
+            return cand
+    return candidates[0]
+
+
 def _local_path(path):
     """Personal overrides live next to the tracked file as *.local.txt and are
     gitignored, so private vocabulary never ends up in a public repo."""
-    full = path if os.path.isabs(path) else os.path.join(BASE_DIR, path)
+    full = _resource_path(path)
     root, ext = os.path.splitext(full)
     return root + ".local" + (ext or ".txt")
 
 
 def _read_lines(path):
-    full = path if os.path.isabs(path) else os.path.join(BASE_DIR, path)
+    full = _resource_path(path)
     if not os.path.exists(full):
         return []
     with open(full, "r", encoding="utf-8") as f:
@@ -1473,21 +1492,21 @@ def run_doctor():
     raw_profiles = cfg.get("profiles") or []
     for i, p in enumerate(profiles):
         raw = raw_profiles[i] if i < len(raw_profiles) else {}
-        hw_path = p.hotwords_file if os.path.isabs(p.hotwords_file) else os.path.join(BASE_DIR, p.hotwords_file)
+        hw_path = _resource_path(p.hotwords_file)
         if os.path.exists(hw_path):
             check(f"hotwords file ({p.name})", True, f"{len(p.hotword_list)} entries")
         elif raw.get("hotwords_file"):
             check(f"hotwords file ({p.name})", False, f"{p.hotwords_file} configured but missing")
         else:
             check(f"hotwords file ({p.name})", True, "not configured (optional)")
-        corr_path = p.corrections_file if os.path.isabs(p.corrections_file) else os.path.join(BASE_DIR, p.corrections_file)
+        corr_path = _resource_path(p.corrections_file)
         check(
             f"corrections file ({p.name})",
             True,
             f"{len(p.corrections)} rules"
             + ("" if os.path.exists(corr_path) else " (file missing - no rules)"),
         )
-        snip_path = p.snippets_file if os.path.isabs(p.snippets_file) else os.path.join(BASE_DIR, p.snippets_file)
+        snip_path = _resource_path(p.snippets_file)
         check(
             f"snippets file ({p.name})",
             True,

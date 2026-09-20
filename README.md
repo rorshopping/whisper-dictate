@@ -337,11 +337,24 @@ Common notes:
   the network check. Offline is only enforced when the models are already in
   the local cache, so first-time setup still downloads.
 
-## Support this project
+## License, buying, and releases
 
-Whisper Dictate is free and open source (MIT). If it saves you typing, you
-can support development via "pay what you want" on Gumroad:
+- **Personal use**: free — clone it, run it from source, every feature
+  included.
+- **Commercial use / prebuilt binaries**: [Whisper Dictate
+  Pro](https://whisperdictate.vercel.app) — €20/year per user. Includes
+  ready-to-run Windows & macOS builds from
+  [GitHub Releases](https://github.com/rorshopping/whisper-dictate/releases/latest),
+  a year of updates, and a 14-day money-back guarantee. Payments are
+  processed by Stripe (setup documented in [STRIPE.md](STRIPE.md)).
+- **License**: the [Community & Commercial License](LICENSE) — source
+  available, free for personal use; versions published before 2026-09-20
+  were MIT. All third-party packages and model weights keep their own
+  licenses, documented in
+  [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+- **Packaged builds**: tag a `v*` release and GitHub Actions builds
+  Windows/macOS bundles via `WhisperDictate.spec` (PyInstaller) and attaches
+  them to a draft release. Locally:
+  `pyinstaller --noconfirm --clean WhisperDictate.spec`.
 
-<!-- SUPPORT-LINK: add Gumroad URL here before publishing -->
-
-or by reporting bugs and sending pull requests right here on GitHub.
+Bugs and pull requests are welcome right here on GitHub.
