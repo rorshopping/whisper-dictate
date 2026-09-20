@@ -1,30 +1,34 @@
-Whisper Dictate — Community & Commercial License
-================================================
+Whisper Dictate — License Agreement
+===================================
 
 Copyright (c) 2026 Richard Bäcker. All rights reserved.
 
 This license covers the Whisper Dictate source code, build scripts, and
 documentation in this repository (the "Software").
 
-1. Personal use — free
-   You may use, study, and modify the Software, and run it on machines you
-   own or control, free of charge for personal, non-commercial purposes.
+1. License required
+   Using the Software requires a paid license for everyone except the
+   copyright holder: EUR 40 per user per year, purchased at
+   https://whisperdictate.vercel.app. A license covers one named user on any
+   number of their own machines and includes updates published during the
+   twelve-month term.
 
-2. Commercial use — paid
-   Any commercial use of the Software — use by or for a business or
-   organization, use as part of paid work, or redistribution of builds —
-   requires a commercial license, available at
-   https://whisperdictate.vercel.app (EUR 20 per user per year). A purchase
-   covers one named user for twelve months and includes updates published
-   during that period.
+2. Evaluation
+   You may evaluate the Software free of charge for up to 14 days (the
+   in-app trial) to decide whether to purchase. The evaluation ends after
+   14 days on a machine and requires a license to continue.
 
-3. Redistribution
+3. Source code
+   The source code is publicly viewable and may be studied and used for
+   security review, but building or running it (beyond the evaluation in
+   section 2) still requires the license in section 1.
+
+4. Redistribution
    You may not redistribute, resell, sublicense, or host the Software or
-   application builds of it (modified or unmodified), except for:
-   (a) modified copies for your own personal use under section 1, and
-   (b) contributions submitted upstream to the official repository.
+   application builds of it (modified or unmodified), except for
+   contributions submitted upstream to the official repository.
 
-4. Third-party components and models
+5. Third-party components and models
    The Software depends on open-source libraries and open model weights
    whose own licenses apply to those components; they are preserved and
    listed in THIRD-PARTY-NOTICES.md. Nothing in this license restricts
@@ -33,7 +37,7 @@ documentation in this repository (the "Software").
    publisher and are governed by their own licenses (NVIDIA Open Model
    License; OpenMDW-1.1) — see THIRD-PARTY-NOTICES.md.
 
-5. Warranty and liability
+6. Warranty and liability
    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
    OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
@@ -42,11 +46,11 @@ documentation in this repository (the "Software").
    TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
    SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-6. Historical versions
+7. Historical versions
    Versions of this repository published before 2026-09-20 were licensed
    under the MIT License, and that license continues to apply to those
    historical versions as they were published.
 
-7. Copyright holder
+8. Copyright holder
    The copyright holder may use the Software without restriction.
-   Contact for commercial licenses and questions: see the website above.
+   Contact for licenses and questions: see the website above.

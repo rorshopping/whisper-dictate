@@ -339,18 +339,18 @@ Common notes:
 
 ## License, buying, and releases
 
-- **Personal use**: free — clone it, run it from source, every feature
-  included.
-- **Commercial use / prebuilt binaries**: [Whisper Dictate
-  Pro](https://whisperdictate.vercel.app) — €20/year per user. Includes
+- **Try it**: free 14-day trial — sign up inside the app with an email, no
+  card needed.
+- **License**: €40 per user per year, for all use, at
+  [whisperdictate.vercel.app](https://whisperdictate.vercel.app). Includes
   ready-to-run Windows & macOS builds from
   [GitHub Releases](https://github.com/rorshopping/whisper-dictate/releases/latest),
   a year of updates, and a 14-day money-back guarantee. Payments are
   processed by Stripe (setup documented in [STRIPE.md](STRIPE.md)).
-- **License**: the [Community & Commercial License](LICENSE) — source
-  available, free for personal use; versions published before 2026-09-20
-  were MIT. All third-party packages and model weights keep their own
-  licenses, documented in
+- **License terms**: the [License Agreement](LICENSE) — running the Software
+  requires a license for everyone except the copyright holder; versions
+  published before 2026-09-20 were MIT. Third-party packages and model
+  weights keep their own licenses, documented in
   [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 - **Packaged builds**: tag a `v*` release and GitHub Actions builds
   Windows/macOS bundles via `WhisperDictate.spec` (PyInstaller) and attaches

@@ -13,3 +13,4 @@ dist/
 test.wav
 transcription-history.jsonl
 website/.env.local
+config.local.json

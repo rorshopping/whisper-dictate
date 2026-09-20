@@ -18,6 +18,7 @@ import pystray
 import sounddevice as sd
 from PIL import Image, ImageDraw
 
+import license_gate
 from sound_cues import DEFAULT_THEME, SoundPlayer, build_sound_menu
 
 if getattr(sys, "frozen", False):
@@ -185,6 +186,8 @@ DEFAULTS = {
     "voice_shortcuts": True,
     "voice_commands": True,
     "command_hotkey": ["ctrl", "shift", "f10"],
+    "license_required": True,
+    "license_api": "https://whisperdictate.vercel.app/api",
     "smart_format": True,
     "smart_fillers": True,
     "smart_spoken_punctuation": True,
@@ -231,6 +234,12 @@ def load_config():
     path = os.path.join(BASE_DIR, "config.json")
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
+            cfg.update(json.load(f))
+    # Untracked machine-specific overrides (e.g. the copyright holder's own
+    # license_required:false); never shipped or committed.
+    local = os.path.join(BASE_DIR, "config.local.json")
+    if os.path.exists(local):
+        with open(local, "r", encoding="utf-8") as f:
             cfg.update(json.load(f))
     return cfg
 
@@ -1565,6 +1574,10 @@ def _hotkey_menu_items():
 
 
 def main():
+    if not DOCTOR and not license_gate.ensure_licensed(cfg, log):
+        log("No license - exiting (start again to activate, or see "
+            "https://whisperdictate.vercel.app)")
+        return
     log(f"{APP_NAME} pid={os.getpid()} exe={sys.executable} - device={DEVICE} compute={COMPUTE}")
     if MODEL_IDLE_UNLOAD_S > 0:
         log(f"Models unload after {MODEL_IDLE_UNLOAD_S / 60:.0f} min idle")
