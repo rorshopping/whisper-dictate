@@ -1,0 +1,15 @@
+# Voice shortcuts (Wispr-Flow style): say the trigger, paste the expansion.
+# Format: trigger => expansion, one per line; lines starting with # are
+# ignored. Applied case-insensitively on whole words after the corrections
+# pass, before smart formatting. Reload via tray menu "Reload hotwords &
+# snippets".
+#
+# Personal shortcuts belong in snippets-en.local.txt (gitignored) so private
+# text (addresses, phone numbers, keys) never ends up in a published repo.
+# Both files are merged.
+#
+# Examples - uncomment or write your own:
+#
+# my email => richard@example.com
+# standup update => Yesterday: worked on the dictation engine. Today: polishing smart formatting. No blockers.
+# long reply => Thanks for the detailed message! I looked into it and will get back to you with a full answer by tomorrow.

@@ -177,6 +177,11 @@ DEFAULTS = {
     "scratch_hotkey": ["ctrl", "shift", "f13"],
     "fuzzy_hotwords": True,
     "fuzzy_hotword_min_score": 85,
+    "voice_shortcuts": True,
+    "smart_format": True,
+    "smart_fillers": True,
+    "smart_spoken_punctuation": True,
+    "smart_capitalize": True,
     "paste_button_linger": 10,
     "model_idle_unload_minutes": 10,
     "profiles": [
@@ -332,6 +337,39 @@ def _reconcile_hotwords(text, profile):
         return text
 
 
+def _expand_snippets(text, profile):
+    """Voice shortcuts: say a trigger, paste the full expansion.
+
+    snippets-<lang>.txt (plus a gitignored *.local.txt) holds trigger =>
+    expansion pairs in the corrections file format, applied
+    case-insensitively on whole words."""
+    if not text or not cfg.get("voice_shortcuts", True) or not profile.snippets:
+        return text
+    return apply_corrections(text, profile.snippets)
+
+
+def _smart_format(text, profile):
+    """Wispr Flow-style auto-edits: in-speech backtrack self-corrections,
+    filler-word removal, spoken punctuation, list bullets and sentence
+    casing (smart_format.py). Fail-safe like _reconcile_hotwords."""
+    if not text or not cfg.get("smart_format", True):
+        return text
+    try:
+        from smart_format import apply
+
+        return apply(
+            text,
+            language=profile.language,
+            fillers=cfg.get("smart_fillers", True),
+            spoken_punctuation=cfg.get("smart_spoken_punctuation", True),
+            capitalize=cfg.get("smart_capitalize", True),
+            log=log,
+        )
+    except Exception as exc:
+        log(f"[{profile.name}] Smart format pass skipped: {exc}")
+        return text
+
+
 def _display_key(k):
     return {
         "ctrl": "Ctrl",
@@ -360,6 +398,11 @@ class Profile:
         self.hotword_list = self.hotwords.split()
         self.corrections_file = p.get("corrections_file") or f"corrections-{self.language}.txt"
         self.corrections = load_corrections(self.corrections_file)
+        # Voice shortcuts (Wispr Flow style): say the trigger, paste the
+        # expansion. Same trigger => expansion file format as corrections,
+        # merged with a gitignored snippets-*.local.txt for personal text.
+        self.snippets_file = p.get("snippets_file") or f"snippets-{self.language}.txt"
+        self.snippets = load_corrections(self.snippets_file)
         # No initial_prompt on purpose: Whisper's prompt slot means "already
         # transcribed text", not instructions. An instruction prefix (plus the
         # hotword list) made the model echo prompt words instead of
@@ -1063,6 +1106,8 @@ def transcribe_thread(profile, buf):
         parts = [seg.text.strip() for seg in segments]
         text = apply_corrections(" ".join(parts).strip(), profile.corrections)
         text = _reconcile_hotwords(text, profile)
+        text = _expand_snippets(text, profile)
+        text = _smart_format(text, profile)
         done.set()
         duration = audio.size / cfg["samplerate"]
         log(
@@ -1201,9 +1246,10 @@ def reload_hotwords(icon=None):
         p.hotwords = load_hotwords(p.hotwords_file)
         p.hotword_list = p.hotwords.split()
         p.corrections = load_corrections(p.corrections_file)
-    log("Hotwords and corrections reloaded")
+        p.snippets = load_corrections(p.snippets_file)
+    log("Hotwords, corrections and snippets reloaded")
     if icon:
-        icon.notify("Hotwords and corrections reloaded", APP_NAME)
+        icon.notify("Hotwords, corrections and snippets reloaded", APP_NAME)
 
 
 def make_icon_image():
@@ -1353,6 +1399,13 @@ def run_doctor():
             f"{len(p.corrections)} rules"
             + ("" if os.path.exists(corr_path) else " (file missing - no rules)"),
         )
+        snip_path = p.snippets_file if os.path.isabs(p.snippets_file) else os.path.join(BASE_DIR, p.snippets_file)
+        check(
+            f"snippets file ({p.name})",
+            True,
+            f"{len(p.snippets)} shortcuts"
+            + ("" if os.path.exists(snip_path) else " (file missing - none)"),
+        )
 
     # Environment
     try:
@@ -1496,7 +1549,7 @@ def main():
             lambda icon, message: icon.notify(message, APP_NAME) if icon else log(message),
         )),
         pystray.MenuItem("Show microphone devices", _open_audio_settings),
-        pystray.MenuItem("Reload hotwords", reload_hotwords),
+        pystray.MenuItem("Reload hotwords & snippets", reload_hotwords),
         pystray.MenuItem("Unload models now", unload_models_now),
         pystray.MenuItem("Quit", quit_app),
     )

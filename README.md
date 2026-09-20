@@ -32,6 +32,15 @@ the current state and both hotkeys, so you never forget them.
   dictating, select the field afterwards and press `Ctrl+Shift+F12` (or use the
   tray menu "Paste last transcription") to insert the most recent recording
   there.
+- **Wispr Flow–style auto-edits**: filler words ("um", "ähm") are removed,
+  spoken punctuation and structure commands ("comma", "new line",
+  "bullet point", …) become real formatting, and saying "scratch that"
+  mid-dictation drops everything before it — see
+  [Auto-edits and voice shortcuts](#auto-edits-and-voice-shortcuts). All
+  deterministic string rewrites, fully offline, no model cost.
+- **Voice shortcuts**: `snippets-en.txt` / `snippets-de.txt` map spoken
+  triggers to full-text expansions (`my email => richard@example.com`), with a
+  gitignored `*.local.txt` next to each for private snippets.
 - Status pill that only appears while something is happening (loading /
   listening / transcribing / typing / error) and hides itself when idle —
   every hotkey is listed in the tray menu instead
@@ -64,6 +73,47 @@ this code update; subsequent menu changes take effect immediately.
 Config keys: `sound` (boolean, default `true`) and `sound_theme` (default
 `"message-chime"`; alternatives `"message-tone"`, `"high-bell"`,
 `"double-bell"`, `"low-bell"`). Existing `sound: false` preferences are honored.
+
+## Auto-edits and voice shortcuts
+
+After each transcription — corrections, fuzzy hotwords, then smart formatting —
+a deterministic post-processing pass (`smart_format.py`) runs, so the text you
+get reads like something you wrote, not like something you said:
+
+- **Filler removal**: standalone "um / uh / uhm / erm / hmm" (EN) and
+  "äh / ähm / öh / öhm" (DE) tokens are dropped.
+- **Spoken punctuation and structure**: whole-word commands become real
+  formatting on every engine:
+
+  | Say (EN) | Say (DE) | Result |
+  |---|---|---|
+  | comma / period / full stop | Komma | `,` / `.` |
+  | question mark / exclamation mark, point | Fragezeichen / Ausrufezeichen | `?` / `!` |
+  | colon / semicolon | Doppelpunkt / Semikolon | `:` / `;` |
+  | open / close paren(thesis) | Klammer auf / Klammer zu | `(` / `)` |
+  | new line | neue Zeile | line break |
+  | new paragraph | neuer Absatz | blank line |
+  | bullet point / new bullet | Aufzählungspunkt | a `•` item on its own line |
+
+- **Backtrack (self-correction)**: saying "scratch that" / "strike that"
+  (EN) or "vergiss das" / "vergiss es" (DE) inside a dictation drops
+  everything dictated before it — restate and keep going. (The
+  `Ctrl+Shift+F13` scratch hotkey complements this by undoing a
+  transcription *after* it was typed.)
+- **Sentence casing**: sentences, lines and bullets start capitalized;
+  standalone "i" becomes "I" (EN). Words like "example.com", "3.5" or German
+  "Punkt" are never touched.
+
+Every pass is conservative (whole words only, no real words rewritten) and can
+be switched in `config.json`: `smart_format`, `smart_fillers`,
+`smart_spoken_punctuation`, `smart_capitalize` (all default `true`).
+
+**Voice shortcuts** are separate `trigger => expansion` files
+(`snippets-en.txt` / `snippets-de.txt`) applied before smart formatting: say
+the trigger, the full expansion is typed instead. Personal snippets (emails,
+addresses, boilerplate) belong in a gitignored `snippets-*.local.txt` next to
+the tracked file — both are merged. Edit either file and use the tray menu
+"Reload hotwords & snippets" — no restart needed.
 
 ## Requirements
 

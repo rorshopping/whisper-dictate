@@ -1,0 +1,14 @@
+# Sprach-Kürzel (Wispr-Flow-Stil): Trigger sagen, expansion einfügen.
+# Format: trigger => expansion, eine pro Zeile; Zeilen mit # werden
+# ignoriert. Groß-/kleinschreibungsunabhängig auf ganze Wörter angewendet,
+# nach den Korrekturen, vor dem Smart-Format-Durchlauf. Neuladen über das
+# Tray-Menü "Reload hotwords & snippets".
+#
+# Persönliche Kürzel gehören in snippets-de.local.txt (gitignored), damit
+# private Texte nie in einem öffentlichen Repo landen. Beide Dateien werden
+# zusammengeführt.
+#
+# Beispiele - auskommentieren oder eigene eintragen:
+#
+# meine e-mail => richard@example.com
+# standup update => Gestern: Diktat-Engine verbessert. Heute: Smart-Formatierung fein schleifen. Keine Blocker.
