@@ -45,6 +45,10 @@ the current state and both hotkeys, so you never forget them.
   ("press enter", "select all", "undo that", …), release — the keystrokes run
   in the focused window instead of the words being typed. See
   [Voice commands](#voice-commands-command-mode).
+- **Changeable keyboard shortcuts**: tray menu → "Hotkeys…" rebinds every
+  shortcut (both dictate profiles, Command Mode, paste-last, scratch-that,
+  history) live — click Change, press the new combination, Save. Conflicts
+  are rejected and the bindings persist in `config.json`.
 - Status pill that only appears while something is happening (loading /
   listening / transcribing / typing / error) and hides itself when idle —
   every hotkey is listed in the tray menu instead

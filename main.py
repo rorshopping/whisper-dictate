@@ -19,6 +19,7 @@ import sounddevice as sd
 from PIL import Image, ImageDraw
 
 import license_gate
+import hotkey_settings
 from sound_cues import DEFAULT_THEME, SoundPlayer, build_sound_menu
 
 if getattr(sys, "frozen", False):
@@ -810,6 +811,8 @@ class StatusOverlay:
                     self._show(*item[1:])
                 elif item[0] == "new_text":
                     self._on_new_text()
+                elif item[0] == "tray_action":
+                    _run_tray_action(item[1])
                 else:  # "hide"
                     self._hide()
         except queue.Empty:
@@ -1367,6 +1370,69 @@ def reload_hotwords(icon=None):
         icon.notify("Hotwords, corrections and snippets reloaded", APP_NAME)
 
 
+# Changeable shortcuts (tray menu "Hotkeys…"): row id -> (label, getter)
+def _hotkey_rows():
+    rows = [(f"{p.name} dictate", (lambda pr=p: pr.hotkey), f"profile:{i}")
+            for i, p in enumerate(profiles)]
+    rows += [
+        ("Command mode", lambda: COMMAND_HOTKEY, "command"),
+        ("Paste last", lambda: PASTE_LAST_HOTKEY, "paste_last"),
+        ("Scratch that", lambda: SCRATCH_HOTKEY, "scratch"),
+        ("History window", lambda: list(cfg.get("history_hotkey")
+                                        or ["ctrl", "shift", "f11"]), "history"),
+    ]
+    return rows
+
+
+def _apply_hotkey_changes(changes):
+    """Live-rebind shortcuts and persist them to config.json."""
+    global PASTE_LAST_HOTKEY, SCRATCH_HOTKEY, COMMAND_HOTKEY
+    for row_id, combo in changes.items():
+        combo = list(combo)
+        if row_id.startswith("profile:"):
+            idx = int(row_id.split(":", 1)[1])
+            if idx < len(profiles):
+                profiles[idx].hotkey = combo
+        elif row_id == "paste_last":
+            PASTE_LAST_HOTKEY = combo
+        elif row_id == "scratch":
+            SCRATCH_HOTKEY = combo
+        elif row_id == "command":
+            COMMAND_HOTKEY = combo
+    if "history" in changes:
+        cfg["history_hotkey"] = list(changes["history"])
+    path = os.path.join(BASE_DIR, "config.json")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        data = dict(cfg)
+    data = hotkey_settings.apply_changes_to_config(data, changes)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    log(f"Hotkeys changed: {', '.join(sorted(changes))}")
+
+
+def _run_tray_action(name):
+    """Tray-menu actions that need the Tk main thread (run via _poll)."""
+    if name != "hotkeys":
+        return
+    if OVERLAY_ROOT is None:
+        return
+    try:
+        import hotkey_settings
+        rows = [(label, get(), row_id)
+                for label, get, row_id in _hotkey_rows()]
+        hotkey_settings.open_dialog(OVERLAY_ROOT, rows, _apply_hotkey_changes)
+    except Exception as exc:
+        log(f"Hotkeys dialog failed: {exc}")
+        try:
+            OVERLAY_ROOT.bell()
+        except Exception:
+            pass
+
+
 def make_icon_image():
     img = Image.new("RGB", (64, 64), (20, 20, 30))
     d = ImageDraw.Draw(img)
@@ -1672,6 +1738,7 @@ def main():
         )),
         pystray.MenuItem("Show microphone devices", _open_audio_settings),
         pystray.MenuItem("Reload hotwords & snippets", reload_hotwords),
+        pystray.MenuItem("Hotkeys…", lambda: STATUS_QUEUE.put(("tray_action", "hotkeys"))),
         pystray.MenuItem("Unload models now", unload_models_now),
         pystray.MenuItem("Quit", quit_app),
     )

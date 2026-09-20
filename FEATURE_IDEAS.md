@@ -89,6 +89,8 @@ Implemented 2026-09-20 (Wispr Flow parity pass; restart the app to pick the chan
 
 Wispr Flow parity check (2026-09-20): covered — universal input, custom dictionary (hotwords/corrections/`*.local.txt` + fuzzy reconcile), auto-edits (fillers/punctuation/formatting), backtrack self-correction, voice shortcuts, multi-language profiles. Deliberately out of scope for a local offline-first tool — need an online LLM: tone/style rewriting, natural-language command instructions ("make this an email reply"), automatic translation; need a second device: cross-device sync, iOS keyboard, Notetaker.
 
+- **Changeable keyboard shortcuts** — new `hotkey_settings.py`: tray menu "Hotkeys…" opens a Tk dialog (via `STATUS_QUEUE`/`_poll`, so it runs on the Tk main thread) listing both dictate profiles, Command Mode, paste-last, scratch-that and the history window. "Change" captures the next combination at the Tk level (keysym mapping to the pynput-compatible key vocabulary), with conflict rejection and a non-modifier requirement. Saving live-rebinds profile `.hotkey` and the module hotkey globals and persists to `config.json` (`hotkey_settings.apply_changes_to_config`). The history add-on already re-read `history_hotkey` per event, so it rebinds with no code change.
+
 Skipped (with reasons):
 
 - **Live streaming preview** (`Big Bet`) — needs the actual Nemotron checkpoints and a GPU to validate incremental decoding; enabling it code-only could not be verified safe.
