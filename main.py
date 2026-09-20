@@ -1685,6 +1685,13 @@ def main():
         icon.run_detached()
     except AttributeError:
         threading.Thread(target=icon.run, daemon=True).start()
+    # Broadcast message fetched during license revalidation (notice.json).
+    notice = license_gate.pending_notice()
+    if notice:
+        try:
+            icon.notify(notice["message"], APP_NAME)
+        except Exception:
+            pass
     overlay.root.mainloop()
 
 

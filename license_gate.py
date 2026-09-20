@@ -26,6 +26,7 @@ import uuid
 from pathlib import Path
 
 DEFAULT_API = "https://whisperdictate.vercel.app/api"
+NOTICE_URL = "https://whisperdictate.vercel.app/notice.json"
 LICENSE_DIR = Path.home() / ".whisperdictate"
 LICENSE_FILE = LICENSE_DIR / "license.json"
 GRACE_DAYS = 14
@@ -116,6 +117,37 @@ def _activate(url, endpoint, email, device):
     return state, None
 
 
+_notice_pending = None  # set by revalidate_async when a new notice arrives
+
+
+def pending_notice():
+    """Broadcast message fetched during revalidation (shown once by main)."""
+    global _notice_pending
+    notice = _notice_pending
+    _notice_pending = None
+    return notice
+
+
+def _check_notice(state):
+    """Fetch the public broadcast file; stash it when newer than seen."""
+    global _notice_pending
+    try:
+        req = urllib.request.Request(NOTICE_URL, headers={"Cache-Control": "no-cache"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            notice = json.loads(resp.read().decode("utf-8"))
+        message = notice.get("message")
+        if message and notice.get("updated") != state.get("notice_seen"):
+            _notice_pending = {
+                "message": message,
+                "url": notice.get("url"),
+                "updated": notice.get("updated"),
+            }
+            state["notice_seen"] = notice.get("updated")
+            save_local(state)
+    except Exception:
+        pass
+
+
 def revalidate_async(cfg=None, log=None):
     """Refresh last_ok/token in the background; never blocks or raises."""
 
@@ -123,17 +155,29 @@ def revalidate_async(cfg=None, log=None):
         state = load_local()
         if not state or not state.get("token"):
             return
+        url = (cfg or {}).get("license_api", DEFAULT_API)
         try:
-            resp = _post(
-                f"{(cfg or {}).get('license_api', DEFAULT_API)}/validate",
-                {"token": state["token"]},
-            )
+            resp = _post(f"{url}/validate", {"token": state["token"]})
             state["token"] = resp.get("token", state["token"])
             state["exp"] = resp.get("exp", state.get("exp", 0))
             state["last_ok"] = time.time()
             save_local(state)
             if log:
                 log("License revalidated")
+            _check_notice(state)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 403 and state.get("email"):
+                # License expired/revoked server-side: re-run activation, so a
+                # renewed subscription extends us without any user action.
+                new_state, err = _activate(url, "activate", state["email"], state["device"])
+                if new_state:
+                    save_local(new_state)
+                    if log:
+                        log("License renewed via re-activation")
+                elif log:
+                    log(f"License re-activation failed: {err}")
+            elif log:
+                log(f"License revalidation failed: HTTP {exc.code}")
         except Exception as exc:
             if log:
                 log(f"License revalidation skipped: {exc}")

@@ -19,38 +19,37 @@ exists and how the pieces fit together.
 ## How licensing works
 
 1. Customer pays via the payment link with their email.
-2. `checkout.session.completed` hits `website/api/stripe-webhook.js`
-   (deployed on Vercel with the site), which adds/extends the email in the
-   **private** repo `rorshopping/whisperdictate-admin` (`licenses.json`).
-   Renewals (`invoice.paid`) extend; cancellation at period end
-   (`customer.subscription.deleted`) revokes.
-3. The app's startup gate (`license_gate.py`) asks for the purchase email,
-   `POST /api/activate` checks the store and issues a device-bound token
-   (max 3 devices). `/api/validate` re-issues fresh tokens; the client keeps
-   a 14-day offline grace. `/api/trial` gives one 14-day trial per email.
-4. Messaging customers: private repo → Actions → "Message customers"
-   (needs `SMTP_USER`/`SMTP_PASS` secrets there; a Gmail app password works).
+2. In the app, they enter that email in the activation dialog. The
+   activation API (`website/api/activate.js`, deployed on Vercel) verifies
+   the purchase **directly against Stripe** (checkout session + subscription
+   status read with the restricted key in `STRIPE_SECRET_KEY`), provisions
+   the email in the private store (`rorshopping/whisperdictate-admin`,
+   `licenses.json`) and issues a device-bound token (max 3 devices).
+3. `/api/validate` re-issues fresh tokens; the client keeps a 14-day offline
+   grace. On a 403 (expiry), the client silently re-activates — which
+   re-reads the subscription's `current_period_end`, so renewals extend and
+   cancellations end access **without any webhook**.
+4. `/api/trial` gives one 14-day trial per email.
+5. The Stripe webhook (`website/api/stripe-webhook.js`) is optional
+   fast-path hardening: the test-mode endpoint is configured and verified;
+   the live endpoint can be added in the Dashboard anytime (restricted key
+   lacks `webhook_write`). Append its `whsec_` to the Vercel env
+   `STRIPE_WEBHOOK_SECRET` (comma-separated).
 
 Vercel env vars on project `whisperdictate`: `GH_TOKEN` (repo contents
-access), `LICENSE_HMAC_SECRET` (token signing), `STRIPE_WEBHOOK_SECRET`
-(comma-separated test + live secrets).
+access), `LICENSE_HMAC_SECRET` (token signing), `STRIPE_SECRET_KEY`
+(restricted live key: checkout/subscription reads for activation),
+`STRIPE_WEBHOOK_SECRET` (test secret; live optional).
 
-## ONE manual step left (live webhook)
+## Messaging customers (no manual steps needed)
 
-The CLI's live restricted key lacks `webhook_write`, so the **live** webhook
-endpoint must be created in the Dashboard (2 minutes):
-
-1. https://dashboard.stripe.com/acct_1U30Ms4x3RJZCHSg/webhooks → **Add endpoint**
-2. URL: `https://whisperdictate.vercel.app/api/stripe-webhook`
-3. Events: `checkout.session.completed`, `invoice.paid`,
-   `customer.subscription.deleted`
-4. Copy the signing secret (`whsec_...`) and append it to the Vercel env var:
-   `vercel env rm STRIPE_WEBHOOK_SECRET production` then re-add
-   `"<test whsec>,<live whsec>"`, redeploy.
-
-Until then, a live buyer appears in Stripe (and gets Stripe's receipt) but
-must be registered manually: private repo → Actions → "Manage licenses" →
-action=issue, email=<buyer email>. Then the app activation works.
+- **Automatic, in-app**: edit `website/notice.json` (`message`, `url`,
+  `updated`) and deploy — every active install shows it as a tray
+  notification once (the app compares `updated` with what it last showed).
+- **Real email**: private repo → Actions → "Message customers" needs
+  `SMTP_USER`/`SMTP_PASS` secrets (a Gmail app password is fine), OR run
+  `scripts/message_outlook.ps1` locally while desktop Outlook is open.
+- Purchase receipts/renewal emails are sent by Stripe automatically.
 
 ## Managing / inspecting
 
