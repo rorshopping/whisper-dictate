@@ -275,13 +275,26 @@ def _read_lines(path):
         return [line.strip() for line in f]
 
 
-def load_hotwords(path):
-    words = []
+def load_hotword_list(path):
+    """Hotword entries for the fuzzy pass, merged with the *.local.txt
+    override: one entry per line, multi-word phrases kept intact.
+
+    hotword_fuzzy.reconcile() matches phrase entries against same-size token
+    windows, so never derive this from the joined hotwords string via
+    .split() - that promotes generic words inside phrases ("Pi coding agent"
+    -> "agent") to standalone canonical spellings, and the fuzzy pass then
+    reverts corrections ("sub agents" -> "sub agent", score 91 >= 85)."""
+    entries = []
     for source in (path, _local_path(path)):
         for line in _read_lines(source):
             if line and not line.startswith("#"):
-                words.append(line)
-    return " ".join(words)
+                entries.append(line)
+    return entries
+
+
+def load_hotwords(path):
+    """Space-joined hotwords for engines with vocabulary biasing."""
+    return " ".join(load_hotword_list(path))
 
 
 def load_corrections(path):
@@ -471,8 +484,11 @@ class Profile:
         self.hotwords = load_hotwords(self.hotwords_file)
         # Canonical spellings for the fuzzy hotword pass
         # (hotword_fuzzy.reconcile) so hotwords-*.txt also reaches engines
-        # with no vocabulary biasing (Nemotron).
-        self.hotword_list = self.hotwords.split()
+        # with no vocabulary biasing (Nemotron). Entries, not split words:
+        # phrases must stay intact ("Pi coding agent"), otherwise generic
+        # words inside them ("agent") become standalone rewrite targets and
+        # undo corrections ("sub agents" -> "sub agent").
+        self.hotword_list = load_hotword_list(self.hotwords_file)
         self.corrections_file = p.get("corrections_file") or f"corrections-{self.language}.txt"
         self.corrections = load_corrections(self.corrections_file)
         # Voice shortcuts (Wispr Flow style): say the trigger, paste the
@@ -574,6 +590,7 @@ model_use_time = time.time()
 
 STATUS_QUEUE = queue.Queue()
 OVERLAY_ROOT = None
+TRAY_ICON = None  # set in main(); lets worker threads raise tray notifications
 
 STATE_COLORS = {
     "listening": "#ff4d4d",
@@ -1081,26 +1098,102 @@ def _transcribe_captured(profile, buf, command=False):
     ).start()
 
 
+# --- Out-of-memory user feedback -------------------------------------------
+# Load/inference failures caused by exhausted RAM/VRAM otherwise land only
+# in dictate.log, where the huge raw CUDA text scrolls by unnoticed and the
+# user just sees nothing happen.
+_OOM_NOTIFY_GAP_S = 30.0         # balloon throttle: retry storms must not spam
+_oom_notify_at = [0.0]           # list cell: worker threads may update it
+_OOM_MARKERS = (
+    "out of memory",             # torch / CUDA / host allocators
+    "cannot allocate",           # errno-style and numpy allocator text
+    "can't allocate",
+    "unable to allocate",
+    "out of host memory",        # ctranslate2 / cuBLAS host alloc
+    "not enough memory",         # Windows ERROR_NOT_ENOUGH_MEMORY wording
+    "insufficient system resources",  # WinError 8 / 1455 wording
+    "paging file is too small",
+)
+
+
+def _is_memory_error(exc):
+    """True when an exception means RAM/VRAM was exhausted (ours or the OS')."""
+    if isinstance(exc, MemoryError):
+        return True
+    if "OutOfMemory" in type(exc).__name__:   # torch.OutOfMemoryError et al.
+        return True
+    if getattr(exc, "winerror", None) in (8, 14, 1455):   # OUTOFMEMORY etc.
+        return True
+    if getattr(exc, "errno", None) == 12:                  # ENOMEM
+        return True
+    text = str(exc).lower()
+    return any(marker in text for marker in _OOM_MARKERS)
+
+
+def _oom_texts(profile):
+    """(tray message, status-pill detail) for out-of-memory, per language."""
+    if str(getattr(profile, "language", "en")).lower().startswith("de"):
+        return (
+            "Nicht genug freier Speicher: andere Apps belegen RAM/VRAM. "
+            "Schließen Sie welche und versuchen Sie es erneut.",
+            "- nicht genug Speicher",
+        )
+    return (
+        "Not enough free memory: other apps are using your RAM/VRAM. "
+        "Close some and try again.",
+        "- not enough free memory",
+    )
+
+
+def _notify_out_of_memory(profile, exc):
+    """Tell the user when dictation/model loading failed for lack of memory.
+
+    Fail-safe by design: never raises (a broken notification must not mask
+    the original error), the balloon is throttled so a hotkey retry storm
+    cannot spam, and callers keep their existing logging and error flow."""
+    now = time.time()
+    if now - _oom_notify_at[0] < _OOM_NOTIFY_GAP_S:
+        return  # throttled; callers still log the raw exception themselves
+    _oom_notify_at[0] = now
+    msg, _ = _oom_texts(profile)
+    log(f"[{profile.name}] {msg} ({type(exc).__name__})")
+    icon = TRAY_ICON
+    if icon is None:
+        return
+    try:
+        icon.notify(msg, APP_NAME)
+    except Exception:
+        pass
+
+
 def get_model(profile):
     with model_lock:
         if profile.model_obj is None:
             t0 = time.time()
             show_state("loading", profile)
             log(f"[{profile.name}] Loading model '{profile.model}' ({profile.engine})...")
-            if profile.engine == "nemotron":
-                # Imported lazily: torch/transformers take a while to import
-                # and are only needed for Nemotron profiles.
-                from nemotron_engine import NemotronModel
+            try:
+                if profile.engine == "nemotron":
+                    # Imported lazily: torch/transformers take a while to import
+                    # and are only needed for Nemotron profiles.
+                    from nemotron_engine import NemotronModel
 
-                profile.model_obj = NemotronModel(
-                    profile.model, device=DEVICE, compute_type=COMPUTE, log=log
-                )
-            else:
-                from faster_whisper import WhisperModel
+                    profile.model_obj = NemotronModel(
+                        profile.model, device=DEVICE, compute_type=COMPUTE, log=log
+                    )
+                else:
+                    from faster_whisper import WhisperModel
 
-                profile.model_obj = WhisperModel(
-                    profile.model, device=DEVICE, compute_type=COMPUTE
-                )
+                    profile.model_obj = WhisperModel(
+                        profile.model, device=DEVICE, compute_type=COMPUTE
+                    )
+            except Exception as exc:
+                # Out-of-memory (other apps hogging RAM/VRAM) needs a message
+                # the user actually sees; every other failure keeps the old
+                # log-only behavior and still propagates unchanged.
+                if _is_memory_error(exc):
+                    _notify_out_of_memory(profile, exc)
+                raise
             log(f"[{profile.name}] Model loaded in {time.time()-t0:.1f}s")
         touch_model_use()
         return profile.model_obj
@@ -1247,7 +1340,11 @@ def transcribe_thread(profile, buf, command=False):
         play_cue("done")
     except Exception as e:
         done.set()
-        show_state("error", profile)
+        if _is_memory_error(e):
+            _notify_out_of_memory(profile, e)
+            show_state("error", profile, detail=_oom_texts(profile)[1])
+        else:
+            show_state("error", profile)
         log(f"[{profile.name}] Error: {e}")
         logging.exception(f"[{profile.name}] Error")
         import traceback
@@ -1362,7 +1459,7 @@ def paste_last(icon=None, item=None):
 def reload_hotwords(icon=None):
     for p in profiles:
         p.hotwords = load_hotwords(p.hotwords_file)
-        p.hotword_list = p.hotwords.split()
+        p.hotword_list = load_hotword_list(p.hotwords_file)
         p.corrections = load_corrections(p.corrections_file)
         p.snippets = load_corrections(p.snippets_file)
     log("Hotwords, corrections and snippets reloaded")
@@ -1742,7 +1839,9 @@ def main():
         pystray.MenuItem("Unload models now", unload_models_now),
         pystray.MenuItem("Quit", quit_app),
     )
+    global TRAY_ICON
     icon = pystray.Icon("whisper_dictate", make_icon_image(), APP_NAME, menu)
+    TRAY_ICON = icon
 
     overlay = StatusOverlay()
     global OVERLAY_ROOT

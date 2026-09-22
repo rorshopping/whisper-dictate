@@ -32,6 +32,8 @@ tailscale => Tailscale
 trial bounds => trial balances
 recall minus app => recall-app
 sub agent => sub agents
+subagent => sub agents
+sub-agent => sub agents
 ECOSU => accuracy
 
 # User-confirmed mishearings (2026-09-17)
