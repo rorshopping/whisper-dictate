@@ -27,6 +27,16 @@ import numpy as np
 SAMPLE_RATE = 16000
 DEFAULT_MODEL = "nvidia/nemotron-speech-streaming-en-0.6b"
 
+# The checkpoints' encoder position embedding caps a clip at
+# config.max_position_embeddings frames (5000 = ~6.7 min at 80 ms/frame);
+# anything longer raises ValueError inside generate() and the dictation is
+# lost. Transcribe in chunks safely below the cap - this also keeps peak
+# VRAM flat on small GPUs.
+MAX_CHUNK_S = 330.0
+# When a chunk must be cut, search this many seconds before the hard limit
+# for the quietest frame, so the split lands between phrases not mid-word.
+_SPLIT_SEARCH_S = 30.0
+
 # Language tags the multilingual model can append in "auto" mode (e.g.
 # "<de-DE>"); a special token, stripped by skip_special_tokens, but remove any
 # straggler defensively.
@@ -43,7 +53,11 @@ class Segment:
 
 
 class NemotronModel:
-    """Whole-utterance transcription with a Nemotron streaming RNNT model.
+    """Transcription with a Nemotron streaming RNNT model.
+
+    Clips longer than the encoder's position limit (MAX_CHUNK_S) are split at
+    the quietest frame near the limit and transcribed chunk by chunk; the
+    chunk texts are joined with spaces.
 
     ``transcribe()`` keeps the faster-whisper signature. Whisper-only options
     are accepted and ignored on purpose:
@@ -129,8 +143,6 @@ class NemotronModel:
         condition_on_previous_text=False,
         **kwargs,
     ):
-        import torch
-
         audio = np.asarray(audio, dtype=np.float32).reshape(-1)
         if vad_filter:
             audio = self._trim_silence(audio)
@@ -146,6 +158,62 @@ class NemotronModel:
             # Explicit prompt conditioning: never let the model auto-detect the
             # language for a profile that is meant to transcribe one language.
             proc_kwargs["language"] = self._resolve_language(language)
+
+        chunks = self._split_for_limit(audio)
+        texts = []
+        for chunk in chunks:
+            text = _LANG_TAG_RE.sub(
+                "", self._transcribe_chunk(chunk, proc_kwargs)
+            ).strip()
+            if text:
+                texts.append(text)
+            if len(chunks) > 1 and self.device.type == "cuda":
+                # Free each chunk's scratch buffers so the next starts with a
+                # clean slate (peak VRAM stays flat on small GPUs).
+                import torch
+
+                torch.cuda.empty_cache()
+        text = " ".join(texts)
+        segments = [Segment(text)] if text else []
+        info = {
+            "language": proc_kwargs.get("language", "en"),
+            "language_probability": 1.0,
+            "duration": audio.size / SAMPLE_RATE,
+        }
+        return segments, info
+
+    def _split_for_limit(self, audio):
+        """Split audio so no chunk exceeds the encoder's position limit."""
+        limit = int(MAX_CHUNK_S * SAMPLE_RATE)
+        if audio.size <= limit:
+            return [audio]
+        chunks = []
+        start = 0
+        while audio.size - start > limit:
+            cut = self._quiet_cut(audio, start + limit)
+            chunks.append(audio[start:cut])
+            start = cut
+        chunks.append(audio[start:])
+        return chunks
+
+    def _quiet_cut(self, audio, target, frame_ms=80):
+        """Sample index <= target at the quietest frame of the preceding
+        _SPLIT_SEARCH_S, so chunk borders fall in pauses between phrases."""
+        frame = int(SAMPLE_RATE * frame_ms / 1000)
+        back = int(_SPLIT_SEARCH_S * SAMPLE_RATE)
+        lo = max(1, (target - back) // frame)
+        hi = max(lo + 1, target // frame)
+        window = audio[lo * frame : hi * frame]
+        frames = window[: (window.size // frame) * frame].reshape(-1, frame)
+        rms = np.sqrt(np.mean(frames**2, axis=1))
+        # Tie-break toward the latest equally-quiet frame: in sustained
+        # silence the cut stays as close to the limit as possible.
+        quiet = np.flatnonzero(rms <= rms.min() + 1e-4)
+        return min((lo + int(quiet[-1])) * frame, target)
+
+    def _transcribe_chunk(self, audio, proc_kwargs):
+        import torch
+
         inputs = self.processor(
             audio, sampling_rate=SAMPLE_RATE, return_tensors="pt", **proc_kwargs
         )
@@ -158,16 +226,7 @@ class NemotronModel:
                 "ignore", message="Using the model-agnostic default `max_length`"
             )
             output = self.model.generate(**inputs, return_dict_in_generate=True)
-        text = _LANG_TAG_RE.sub(
-            "", self.processor.decode(output.sequences[0], skip_special_tokens=True)
-        ).strip()
-        segments = [Segment(text)] if text else []
-        info = {
-            "language": proc_kwargs.get("language", "en"),
-            "language_probability": 1.0,
-            "duration": audio.size / SAMPLE_RATE,
-        }
-        return segments, info
+        return self.processor.decode(output.sequences[0], skip_special_tokens=True)
 
     def _resolve_language(self, language):
         """Map a profile language code to a prompt key the processor accepts."""

@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 import tkinter as tk
+import wave
 from logging.handlers import RotatingFileHandler
 
 import numpy as np
@@ -1166,6 +1167,72 @@ def _notify_out_of_memory(profile, exc):
         pass
 
 
+def _save_failed_audio(profile, audio):
+    """Write a recording whose transcription failed to lost_audio/ as WAV.
+
+    A failed transcription must never lose the dictation: the user cannot
+    re-record what they said ten minutes ago. Returns the path, or None when
+    there was no audio or saving itself failed. stdlib wave keeps this
+    dependency-free - the pipeline runs on plain float32 PCM.
+    """
+    if audio is None or audio.size == 0:
+        return None
+    try:
+        out_dir = os.path.join(BASE_DIR, "lost_audio")
+        os.makedirs(out_dir, exist_ok=True)
+        path = os.path.join(
+            out_dir, f"{time.strftime('%Y%m%d-%H%M%S')}-{profile.name}.wav"
+        )
+        pcm = (np.clip(audio, -1.0, 1.0) * 32767.0).astype(np.int16)
+        with wave.open(path, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(cfg["samplerate"])
+            wf.writeframes(pcm.tobytes())
+        return path
+    except Exception as exc:
+        log(f"[{profile.name}] Saving the failed recording also failed: {exc}")
+        return None
+
+
+def _recording_saved_pill(profile):
+    """Short status-pill suffix saying the audio was preserved, per language."""
+    if str(getattr(profile, "language", "en")).lower().startswith("de"):
+        return "- Aufnahme gesichert"
+    return "- recording saved"
+
+
+def _notify_transcription_failed(profile, path):
+    """Balloon for a failed transcription, pointing at the preserved audio.
+
+    Shares the OOM balloon throttle (which has already fired for OOM errors,
+    suppressing this duplicate) so a hotkey retry storm cannot spam.
+    Fail-safe: never raises."""
+    now = time.time()
+    if now - _oom_notify_at[0] < _OOM_NOTIFY_GAP_S:
+        return
+    _oom_notify_at[0] = now
+    if str(getattr(profile, "language", "en")).lower().startswith("de"):
+        msg = (
+            f"Transkription fehlgeschlagen - die Aufnahme wurde gesichert: {path}"
+            if path
+            else "Transkription fehlgeschlagen."
+        )
+    else:
+        msg = (
+            f"Transcription failed - your recording was saved, not lost: {path}"
+            if path
+            else "Transcription failed."
+        )
+    icon = TRAY_ICON
+    if icon is None:
+        return
+    try:
+        icon.notify(msg, APP_NAME)
+    except Exception:
+        pass
+
+
 def get_model(profile):
     with model_lock:
         if profile.model_obj is None:
@@ -1278,6 +1345,7 @@ def _model_idle_watchdog():
 
 def transcribe_thread(profile, buf, command=False):
     global last_text, last_profile
+    audio = None
     try:
         audio = np.concatenate(buf) if buf else np.zeros(0, dtype=np.float32)
         audio = np.ascontiguousarray(audio, dtype=np.float32)
@@ -1340,12 +1408,19 @@ def transcribe_thread(profile, buf, command=False):
         play_cue("done")
     except Exception as e:
         done.set()
+        # A failed transcription must never lose the dictation: preserve the
+        # raw audio on disk before any error reporting.
+        path = _save_failed_audio(profile, audio)
         if _is_memory_error(e):
             _notify_out_of_memory(profile, e)
             show_state("error", profile, detail=_oom_texts(profile)[1])
         else:
-            show_state("error", profile)
+            detail = _recording_saved_pill(profile) if path else ""
+            show_state("error", profile, detail=detail)
         log(f"[{profile.name}] Error: {e}")
+        if path:
+            log(f"[{profile.name}] Recording preserved at {path}")
+        _notify_transcription_failed(profile, path)
         logging.exception(f"[{profile.name}] Error")
         import traceback
 
