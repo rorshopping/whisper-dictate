@@ -219,7 +219,7 @@ class ModelManagerTests(unittest.TestCase):
             result = manager.resolve("fixture/nemotron")
             self.assertEqual(result.source, "huggingface")
             self.assertTrue(
-                all(url.startswith("https://huggingface.co/fixture/nemotron/test-revision/")
+                all(url.startswith("https://huggingface.co/fixture/nemotron/resolve/test-revision/")
                     for url in calls)
             )
 

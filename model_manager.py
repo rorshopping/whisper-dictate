@@ -1898,7 +1898,7 @@ class ModelManager:
         base = base_url.rstrip("/")
         if "/resolve/" in base:
             return f"{base}/{revision}/{file_path}"
-        return f"{base}/{model_path}/{revision}/{file_path}"
+        return f"{base}/{model_path}/resolve/{revision}/{file_path}"
 
     def _download_snapshot(
         self,
