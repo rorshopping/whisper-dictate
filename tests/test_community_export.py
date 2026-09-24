@@ -1,5 +1,7 @@
+import ast
 import hashlib
 import json
+import subprocess
 import sys
 import tempfile
 import textwrap
@@ -29,6 +31,7 @@ class CommunityExportTests(unittest.TestCase):
         write(
             "main.py",
             """\
+            import app_paths
             import license_gate
             import tkinter
 
@@ -50,7 +53,25 @@ class CommunityExportTests(unittest.TestCase):
                         icon.notify(notice["message"], APP_NAME)
                     except Exception:
                         pass
+                return None
             """,
+        )
+        write(
+            "app_paths.py",
+            """\
+            import os
+
+            def resource_dir():
+                return os.path.dirname(os.path.abspath(__file__))
+            """,
+        )
+        write(
+            "tests/test_app_paths.py",
+            "import app_paths\n\n\ndef test_fixture_import():\n    assert app_paths.resource_dir()\n",
+        )
+        write(
+            "NOTES_portable-paths.md",
+            "# Portable path fixture\n\n`app_paths.py` separates resources and data.\n",
         )
         write(
             "README.md",
@@ -127,9 +148,12 @@ class CommunityExportTests(unittest.TestCase):
             for expected in (
                 "README.md",
                 "COMMUNITY_RELEASE_DECISION.md",
+                "NOTES_portable-paths.md",
                 "THIRD-PARTY-NOTICES.md",
+                "app_paths.py",
                 "main.py",
                 "config.json",
+                "tests/test_app_paths.py",
                 "assets/sounds/SOURCES.md",
             ):
                 self.assertTrue((output / expected).is_file(), expected)
@@ -175,6 +199,7 @@ class CommunityExportTests(unittest.TestCase):
             self.assertIn("https://openmdw.ai/license/1-1/", model_text)
 
             main_text = (output / "main.py").read_text(encoding="utf-8")
+            self.assertIn("import app_paths", main_text)
             self.assertNotIn("license_gate", main_text)
             self.assertNotIn("whisperdictate.vercel.app", main_text)
             self.assertNotIn("license_required", main_text)
@@ -195,6 +220,37 @@ class CommunityExportTests(unittest.TestCase):
                 data = path.read_bytes()
                 self.assertEqual(len(data), entry["size"])
                 self.assertEqual(hashlib.sha256(data).hexdigest(), entry["sha256"])
+
+    def test_generated_runtime_imports_app_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            source = base / "source"
+            output = base / "community-output"
+            source.mkdir()
+            self.make_fixture(source)
+
+            export_community(source, output)
+            main_tree = ast.parse((output / "main.py").read_text(encoding="utf-8"))
+            imported = {
+                alias.name
+                for node in main_tree.body
+                if isinstance(node, ast.Import)
+                for alias in node.names
+            }
+            self.assertIn("app_paths", imported)
+
+            probe_code = (
+                "from pathlib import Path; import app_paths; "
+                "assert Path(app_paths.__file__).resolve() == Path('app_paths.py').resolve()"
+            )
+            probe = subprocess.run(
+                [sys.executable, "-c", probe_code],
+                cwd=output,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(probe.returncode, 0, probe.stderr)
 
     def test_nonempty_output_requires_explicit_force(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -270,6 +326,18 @@ class CommunityExportTests(unittest.TestCase):
         self.assertTrue(is_denied(".venv/Lib/site-packages/secret.py"))
         self.assertTrue(is_denied("config.local.json"))
         self.assertFalse(is_denied("README.md"))
+        self.assertFalse(is_denied("app_paths.py"))
+        self.assertFalse(is_denied("tests/test_app_paths.py"))
+
+    def test_required_app_paths_source_is_not_optional(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            source = base / "source"
+            source.mkdir()
+            self.make_fixture(source)
+            (source / "app_paths.py").unlink()
+            with self.assertRaises(ExportError):
+                build_artifacts(source)
 
     def test_build_artifacts_does_not_touch_a_destination(self):
         with tempfile.TemporaryDirectory() as tmp:

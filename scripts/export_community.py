@@ -40,9 +40,12 @@ MODEL_LICENSES_NAME = "MODEL_LICENSES.md"
 _ALLOWLIST_PATHS = (
     "COMMUNITY_RELEASE_DECISION.md",
     "FEATURE_IDEAS.md",
+    "NOTES_portable-paths.md",
     "README.md",
     "THIRD-PARTY-NOTICES.md",
     "WhisperDictate.spec",
+    # main.py imports this path-layer runtime; it is required, not optional.
+    "app_paths.py",
     "config.json",
     "corrections-en.txt",
     "enhanced_features.py",
@@ -92,6 +95,7 @@ _ALLOWLIST_PATHS = (
     "assets/sounds/message-tone-stop.wav",
     "assets/sounds/message-tone-undo.wav",
     # Application tests only.  The paid activation test is excluded below.
+    "tests/test_app_paths.py",
     "tests/test_hotkey_settings.py",
     "tests/test_nemotron_chunking.py",
     "tests/test_smart_format.py",
@@ -254,6 +258,7 @@ DENYLIST_PATTERNS = tuple(_DENYLIST_PATTERNS)
 GENERATED_PATHS = frozenset(
     {GENERATED_LICENSE_NAME, MODEL_LICENSES_NAME, MANIFEST_NAME}
 )
+REQUIRED_SOURCE_PATHS = frozenset({"app_paths.py"})
 EXPORT_PATHS = tuple(sorted(set(ALLOWLIST_PATHS) | GENERATED_PATHS))
 EXECUTABLE_PATHS = frozenset({"run_mac.sh"})
 MANIFEST_SCHEMA = "whisper-dictate/community-source-export-v1"
@@ -660,10 +665,11 @@ def _community_main(data: bytes) -> bytes:
     text = re.sub(
         r'''(?m)^[ \t]*['"]license_api['"]\s*:[^\n]*\n''', "", text
     )
-    text = text.replace(
-        "    # Untracked machine-specific overrides (e.g. the copyright holder's own\n"
-        "    # license_required:false); never shipped or committed.",
-        "    # Untracked machine-specific overrides; never shipped or committed.",
+    text = re.sub(
+        r"(?m)^([ \t]*)# Untracked machine-specific overrides \(e\.g\. the copyright holder's own\n"
+        r"\1# license_required:false\); never shipped or committed\.[^\n]*",
+        r"\1# Untracked machine-specific overrides; never shipped or committed.",
+        text,
     )
 
     guard = re.compile(
@@ -695,8 +701,10 @@ def _community_main(data: bytes) -> bytes:
         raise ExportError("main.py still references license_gate after sanitization")
     if "whisperdictate.vercel.app" in text:
         raise ExportError("main.py still contains the paid API URL")
-    if re.search(r'''['"]license_(?:required|api)['"]''', text):
+    if re.search(r"\blicense_(?:required|api)\b", text):
         raise ExportError("main.py still contains paid configuration keys")
+    if not re.search(r"(?m)^[ \t]*import[ \t]+app_paths[ \t]*$", text):
+        raise ExportError("main.py is missing the required app_paths import")
     encoded = text.encode("utf-8")
     _assert_no_secret_material("main.py", encoded)
     return encoded
@@ -739,10 +747,18 @@ def select_source_files(source_root: Path | str | None = None) -> tuple[Selected
 
     root = _normalise_source_root(source_root)
     selected: list[SelectedFile] = []
+    seen: set[str] = set()
     for relative_path in ALLOWLIST_PATHS:
         item = _source_file(root, relative_path)
         if item is not None:
             selected.append(item)
+            seen.add(item.relative_path)
+    missing = sorted(REQUIRED_SOURCE_PATHS - seen)
+    if missing:
+        raise ExportError(
+            "required runtime source file(s) missing from export source: "
+            + ", ".join(missing)
+        )
     return tuple(selected)
 
 
