@@ -356,3 +356,39 @@ These are release-publication gates, not unresolved unit-test failures:
 8. **Workflow supply-chain review — BLOCKED for public release.** The workflow correctly avoids signing secrets and scopes permissions, but its GitHub/softprops actions use mutable version tags rather than immutable commit SHAs. Pin and review action revisions before relying on the workflow for a public release.
 
 Until these gates are complete and recorded, the generated community source export is verified, but no binary or public website release should be advertised.
+
+## Post-verification updates — 2026-09-25
+
+After the independent report, the following additional fixes and external setup
+were completed:
+
+- The Hugging Face downloader now uses the correct
+  `/{model_id}/resolve/{revision}/{filename}` URL form. Regression tests cover
+  the exact URL.
+- The frozen `launcher.py` now dispatches `--doctor` to `run_doctor()` instead
+  of entering the normal tray/audio loop. A frozen offline doctor smoke test
+  completed without starting model inference; the only expected failures were
+  the two absent multi-gigabyte model caches.
+- A clean short-path Windows PyInstaller build completed. The resulting
+  366,226,459-byte unsigned ZIP passed the release guard and checksum/manifest
+  generation. `Get-AuthenticodeSignature` reports `NotSigned`; it was not
+  published.
+- Public source repository created:
+  `https://github.com/rorshopping/whisper-dictate-community`.
+- Public static website repository created:
+  `https://github.com/rorshopping/whisper-dictate-community-web`.
+- Vercel production site deployed at:
+  `https://whisper-dictate-community-web.vercel.app`.
+- The site intentionally still has disabled artifact buttons because no
+  signed stable release has been published.
+- Release workflow cleanup now removes only `__pycache__`, `.pyc`, and `.pyo`
+  files; the first overly broad local cleanup command was discarded and never
+  published.
+- Public CI/release workflow actions were pinned to reviewed commit SHAs.
+
+The remaining blockers are now external release gates: signing/notarization,
+a real model mirror/object-storage policy, legal/SBOM review, clean-machine
+qualification, a real GitHub Actions release run, and publication of a final
+artifact manifest. The Vercel GitHub App connection also needs to be enabled
+in the Vercel dashboard; current production deployment was performed through
+the authenticated CLI.
