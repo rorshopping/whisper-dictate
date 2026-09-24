@@ -22,4 +22,7 @@ if sys.platform == "darwin":
 enhanced_features.install()
 
 if __name__ == "__main__":
-    main.main()
+    if getattr(main, "DOCTOR", False):
+        main.run_doctor()
+    else:
+        main.main()
