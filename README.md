@@ -251,6 +251,17 @@ changing it changes what language the model is conditioned on. No
 "already transcribed text", not instructions, and instruction-style prompts
 made the model echo prompt words instead of transcribing.
 
+Nemotron model sources are configured with the optional `model_resolver`
+block. Its `source_order` defaults to `local`, `cache`, `mirror`, then
+`huggingface`; `cache_dir` may point at a Hugging Face cache root and
+`mirror_url` must be HTTPS. A profile may set `model_revision`, or put an
+absolute/`./` model directory in its existing `model` field (with an explicit
+manifest for a custom checkpoint; keep `"engine": "nemotron"` for a custom
+profile). Offline mode accepts only a complete local snapshot, and the
+resolver never substitutes a different language or model.
+See [`NOTES_model-resolver.md`](NOTES_model-resolver.md) for the manifest
+schema, trust model, and integration details.
+
 - `beam_size` — beam search width for the final transcription. Default `5`.
 - `paste_last_hotkey` — global hotkey to re-insert the most recent
   transcription into the currently focused field. Default `["ctrl", "shift",
@@ -314,7 +325,9 @@ Common notes:
 
 - Requirements: `torch` (CUDA build for GPU) and `transformers>=5.13`.
 - Each checkpoint is ~2.4 GB and is downloaded on first use (or by running the
-  app once with internet on).
+  app once with internet on). The bundled model resolver pins the audited
+  commit and required file hashes; it checks local snapshots before loading and
+  records the selected source.
 - `hotwords-*.txt` is not used by these engines; put deterministic fixes in
   `corrections-*.txt` instead (applied to every transcription).
 - To go back to faster-whisper for a profile, set

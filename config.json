@@ -1,5 +1,10 @@
 {
   "offline": true,
+  "model_resolver": {
+    "source_order": ["local", "cache", "mirror", "huggingface"],
+    "cache_dir": "~/.cache/huggingface/hub",
+    "mirror_url": null
+  },
   "device": "auto",
   "compute_type": "auto",
   "audio_device": null,
@@ -21,6 +26,7 @@
       "hotkey": ["ctrl", "shift", "space"],
       "engine": "nemotron",
       "model": "nvidia/nemotron-speech-streaming-en-0.6b",
+      "model_revision": "ebe59e5a817142986528bbbee5dba8db7b38ed50",
       "language": "en",
       "hotwords_file": "hotwords-en.txt",
       "corrections_file": "corrections-en.txt",
@@ -37,6 +43,7 @@
       "hotkey": ["ctrl", "alt", "space"],
       "engine": "nemotron",
       "model": "nvidia/nemotron-3.5-asr-streaming-0.6b",
+      "model_revision": "ea30d66debe3740a08b573244286791d423d6b3e",
       "language": "de",
       "hotwords_file": "hotwords-de.txt",
       "labels": {
