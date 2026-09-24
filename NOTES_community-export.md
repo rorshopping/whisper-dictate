@@ -38,11 +38,12 @@ manifest is sorted by POSIX path and records byte sizes and SHA-256 hashes.
 The exporter has an explicit exact-path allowlist in
 `scripts/export_community.py`. It includes the application Python modules,
 configuration/data files, tracked sound assets, launch helpers, the portable
-path runtime (`app_paths.py`), its path-layer tests and notes, application
-tests, `README.md`, `COMMUNITY_RELEASE_DECISION.md`, and
-`THIRD-PARTY-NOTICES.md`. Internal roadmap files and remote sound-download
-helpers are intentionally excluded. New files are not copied merely because
-they are present in the checkout; a reviewer must add them to the allowlist.
+path runtime (`app_paths.py`), the pinned model resolver (`model_manager.py`),
+their tests and notes, application tests, `README.md`,
+`COMMUNITY_RELEASE_DECISION.md`, and `THIRD-PARTY-NOTICES.md`. Internal roadmap
+files and remote sound-download helpers are intentionally excluded. New files
+are not copied merely because they are present in the checkout; a reviewer
+must add them to the allowlist.
 
 A denylist documents defense-in-depth exclusions for the paid activation
 module and test, Stripe/payment and marketing material, the existing website

@@ -70,6 +70,18 @@ class CommunityExportTests(unittest.TestCase):
             "import app_paths\n\n\ndef test_fixture_import():\n    assert app_paths.resource_dir()\n",
         )
         write(
+            "model_manager.py",
+            "def resolve_model():\n    return None\n",
+        )
+        write(
+            "tests/test_model_manager.py",
+            "def test_fixture_model_manager():\n    assert True\n",
+        )
+        write(
+            "NOTES_model-resolver.md",
+            "# Model resolver fixture\n\nPinned model sources are documented.\n",
+        )
+        write(
             "NOTES_portable-paths.md",
             "# Portable path fixture\n\n`app_paths.py` separates resources and data.\n",
         )
@@ -151,9 +163,12 @@ class CommunityExportTests(unittest.TestCase):
                 "NOTES_portable-paths.md",
                 "THIRD-PARTY-NOTICES.md",
                 "app_paths.py",
+                "model_manager.py",
                 "main.py",
                 "config.json",
                 "tests/test_app_paths.py",
+                "tests/test_model_manager.py",
+                "NOTES_model-resolver.md",
                 "assets/sounds/SOURCES.md",
             ):
                 self.assertTrue((output / expected).is_file(), expected)

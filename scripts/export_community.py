@@ -40,6 +40,7 @@ MODEL_LICENSES_NAME = "MODEL_LICENSES.md"
 _ALLOWLIST_PATHS = (
     "COMMUNITY_RELEASE_DECISION.md",
     "NOTES_portable-paths.md",
+    "NOTES_model-resolver.md",
     "README.md",
     "THIRD-PARTY-NOTICES.md",
     "WhisperDictate.spec",
@@ -57,6 +58,7 @@ _ALLOWLIST_PATHS = (
     "launcher.py",
     "main.py",
     "nemotron_engine.py",
+    "model_manager.py",
     "platform_mac.py",
     "requirements.txt",
     "run.bat",
@@ -94,6 +96,8 @@ _ALLOWLIST_PATHS = (
     "assets/sounds/message-tone-undo.wav",
     # Application tests only.  The paid activation test is excluded below.
     "tests/test_app_paths.py",
+    "tests/test_model_manager.py",
+    "tests/test_nemotron_model_resolution.py",
     "tests/test_hotkey_settings.py",
     "tests/test_nemotron_chunking.py",
     "tests/test_smart_format.py",
