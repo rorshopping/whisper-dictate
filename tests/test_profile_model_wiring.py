@@ -1,7 +1,9 @@
 """Focused tests for the application Profile -> NemotronModel bridge."""
 
 import importlib.util
+import json
 import logging
+import os
 import sys
 import tempfile
 import types
@@ -99,7 +101,7 @@ class ProfileModelWiringTests(unittest.TestCase):
         self.assertEqual(
             options["huggingface_endpoint"], "https://profile-hf.example"
         )
-        self.assertTrue(options["offline"])
+        self.assertFalse(options["offline"])
         self.assertEqual(options["cache_dir"], self.main.MODEL_CACHE_DIR)
         self.assertEqual(options["local_model_path"], Path("local/snapshot"))
         self.assertEqual(options["language"], "en")
@@ -111,6 +113,82 @@ class ProfileModelWiringTests(unittest.TestCase):
         _reference, options = self.main._nemotron_model_options(self.profile)
 
         self.assertEqual(options["cache_dir"], custom)
+
+    def test_checked_in_legacy_top_level_offline_allows_first_download(self):
+        config = json.loads((ROOT / "config.json").read_text(encoding="utf-8"))
+        profile = self.main.Profile(0, config["profiles"][0])
+        with patch.object(self.main, "_models_cached", return_value=False), patch.dict(
+            os.environ, {}, clear=False
+        ):
+            os.environ.pop("HF_HUB_OFFLINE", None)
+            _reference, options = self.main._nemotron_model_options(
+                profile, config=config
+            )
+            environment_enabled = self.main._configure_legacy_hf_offline(config)
+            environment_was_set = "HF_HUB_OFFLINE" in os.environ
+
+        self.assertTrue(config["offline"])
+        self.assertNotIn("offline", config["model_resolver"])
+        self.assertFalse(options["offline"])
+        self.assertIn("huggingface", options["source_order"])
+        self.assertFalse(environment_enabled)
+        self.assertFalse(environment_was_set)
+
+    def test_legacy_top_level_offline_allows_fresh_cache_download(self):
+        with patch.object(self.main, "_models_cached", return_value=False), patch.dict(
+            os.environ, {}, clear=False
+        ):
+            os.environ.pop("HF_HUB_OFFLINE", None)
+            _reference, options = self.main._nemotron_model_options(self.profile)
+            environment_enabled = self.main._configure_legacy_hf_offline(
+                self.main.cfg
+            )
+            environment_was_set = "HF_HUB_OFFLINE" in os.environ
+
+        self.assertFalse(options["offline"])
+        self.assertEqual(options["source_order"], ("cache", "huggingface"))
+        self.assertFalse(environment_enabled)
+        self.assertFalse(environment_was_set)
+
+        with patch.object(self.main, "_models_cached", return_value=True):
+            _reference, cached_options = self.main._nemotron_model_options(
+                self.profile
+            )
+        self.assertTrue(cached_options["offline"])
+
+    def test_explicit_model_resolver_offline_is_strict_on_fresh_cache(self):
+        self.main.cfg["model_resolver"]["offline"] = True
+        with patch.object(self.main, "_models_cached", return_value=False), patch.dict(
+            os.environ, {}, clear=False
+        ):
+            os.environ.pop("HF_HUB_OFFLINE", None)
+            _reference, options = self.main._nemotron_model_options(self.profile)
+            environment_enabled = self.main._configure_legacy_hf_offline(
+                self.main.cfg
+            )
+            environment_value = os.environ.get("HF_HUB_OFFLINE")
+
+        self.assertTrue(options["offline"])
+        self.assertTrue(environment_enabled)
+        self.assertEqual(environment_value, "1")
+
+    def test_profile_offline_overrides_legacy_top_level_policy(self):
+        profile = self.main.Profile(
+            0,
+            {
+                "name": "EN",
+                "engine": "nemotron",
+                "model": "fixture/nemotron",
+                "model_revision": "test-revision",
+                "language": "en",
+                "offline": True,
+            },
+        )
+        self.main.cfg["model_resolver"]["offline"] = False
+        with patch.object(self.main, "_models_cached", return_value=False):
+            _reference, options = self.main._nemotron_model_options(profile)
+
+        self.assertTrue(options["offline"])
 
     def test_get_model_passes_resolver_options_to_mocked_engine(self):
         calls = []
@@ -136,7 +214,7 @@ class ProfileModelWiringTests(unittest.TestCase):
         self.assertEqual(kwargs["source_order"], ("cache", "huggingface"))
         self.assertEqual(kwargs["mirror_url"], "https://profile-mirror.example")
         self.assertEqual(kwargs["huggingface_endpoint"], "https://profile-hf.example")
-        self.assertTrue(kwargs["offline"])
+        self.assertFalse(kwargs["offline"])
         self.assertEqual(kwargs["cache_dir"], self.main.MODEL_CACHE_DIR)
         self.assertEqual(kwargs["local_model_path"], Path("local/snapshot"))
 

@@ -103,9 +103,65 @@ def _models_cached(cfg):
     return bool(names) and all(_has(n) for n in names)
 
 
+def _explicit_offline(config, profile=None):
+    """Return an explicitly configured resolver/profile offline value.
+
+    The top-level ``offline`` flag predates the pinned resolver and means
+    "prefer offline once the legacy cache is present".  Only a value in
+    ``model_resolver.offline`` or a profile's ``offline`` field is an explicit
+    strict policy.  Returning ``None`` lets the caller apply that legacy
+    cache-aware behavior instead of treating the top-level flag as strict.
+    """
+    if profile is not None and hasattr(profile, "get"):
+        value = profile.get("offline")
+        if value is not None:
+            return bool(value)
+
+    resolver = config.get("model_resolver") if hasattr(config, "get") else None
+    if hasattr(resolver, "get"):
+        value = resolver.get("offline")
+        if value is not None:
+            return bool(value)
+    return None
+
+
+def _offline_for_profile(config, profile=None):
+    """Return the effective offline policy for one configured profile."""
+    explicit = _explicit_offline(config, profile)
+    if explicit is not None:
+        return explicit
+    if not config.get("offline", True):
+        return False
+
+    # Match the legacy startup policy: top-level offline is armed only after
+    # the selected cache contains the configured model directories.  When a
+    # helper is used with a standalone profile, make that profile visible to
+    # the same check.
+    cache_config = config
+    if profile is not None and not config.get("profiles"):
+        cache_config = dict(config)
+        cache_config["profiles"] = [profile]
+    return _models_cached(cache_config)
+
+
+def _offline_environment_enabled(config):
+    """Whether the legacy process-wide HF offline flag should be enabled."""
+    profiles = config.get("profiles") or []
+    if not profiles:
+        return _offline_for_profile(config)
+    return all(_offline_for_profile(config, profile) for profile in profiles)
+
+
+def _configure_legacy_hf_offline(config):
+    """Apply the legacy HF environment flag using the same policy."""
+    enabled = _offline_environment_enabled(config)
+    if enabled:
+        os.environ["HF_HUB_OFFLINE"] = "1"
+    return enabled
+
+
 _cfg_early = _read_cfg()
-if _cfg_early.get("offline", True) and _models_cached(_cfg_early):
-    os.environ["HF_HUB_OFFLINE"] = "1"
+_configure_legacy_hf_offline(_cfg_early)
 
 
 def _add_cuda_dlls_to_path():
@@ -569,7 +625,9 @@ def _nemotron_model_options(profile, config=None):
     path, which is correct for a source checkout but not for a frozen or
     portable installation.  Passing the selected path explicitly prevents the
     resolver from falling back to its own environment/home default.  A
-    deliberate non-default cache path remains configurable.
+    deliberate non-default cache path remains configurable.  The legacy
+    top-level offline flag is cache-aware here; only explicit resolver/profile
+    offline values force a strict fresh-cache policy.
     """
     from model_manager import parse_model_config
 
@@ -584,11 +642,12 @@ def _nemotron_model_options(profile, config=None):
         revision = getattr(profile, "model_revision", None)
         if revision is not None:
             raw_profile["model_revision"] = revision
+        profile_offline = getattr(profile, "offline", None)
+        if profile_offline is not None:
+            raw_profile["offline"] = profile_offline
 
-    settings = parse_model_config(
-        cfg if config is None else config,
-        raw_profile,
-    )
+    effective_config = cfg if config is None else config
+    settings = parse_model_config(effective_config, raw_profile)
 
     def normalized_path(value):
         return os.path.normcase(
@@ -622,7 +681,10 @@ def _nemotron_model_options(profile, config=None):
         "source_order": settings.source_order,
         "mirror_url": settings.mirror_url,
         "huggingface_endpoint": settings.huggingface_endpoint,
-        "offline": settings.offline,
+        # Top-level offline is the legacy cache-aware bootstrap switch.  An
+        # explicit model_resolver/profile value remains strict even on a
+        # fresh cache.
+        "offline": _offline_for_profile(effective_config, raw_profile),
         # This is deliberately the app-selected cache (or an explicit
         # non-default user cache), never a manager environment fallback.
         "cache_dir": cache_dir,

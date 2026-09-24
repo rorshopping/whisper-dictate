@@ -10,7 +10,17 @@ configuration precedence rules:
 
 1. profile-level resolver keys;
 2. the top-level `model_resolver` block; and
-3. the application's normal top-level `offline` default.
+3. the legacy top-level `offline` fallback, which is cache-aware.
+
+The legacy fallback is intentionally different from an explicit resolver
+policy.  A top-level `"offline": true` (the checked-in default) means "use the
+network only until the selected legacy cache is present"; on a fresh cache the
+resolver receives `offline=False` and may follow its configured source order,
+including the explicit Hugging Face download source.  Once the cache
+directories are present, the legacy setting becomes strict.  In contrast,
+`model_resolver.offline: true` or `offline: true` on an individual profile is
+an explicit strict policy and remains true on a fresh cache.  An explicit
+`false` at either level overrides the legacy fallback.
 
 `get_model()` passes the resulting settings to `NemotronModel` as optional
 keyword arguments: `revision`, `source_order`, `mirror_url`,
@@ -45,6 +55,16 @@ of the cache location.  A configured HTTPS mirror can precede the pinned
 Hugging Face endpoint, but neither is a hidden fallback around a failed local
 model load.
 
+The legacy process-wide `HF_HUB_OFFLINE` environment flag now follows the same
+policy: it is enabled only when every configured profile is effectively
+offline.  An explicit resolver/profile `true` makes that profile strict; a
+mixed set of explicit and legacy profiles does not force the global flag on for
+profiles that intentionally remain online.  A fresh cache with only legacy
+top-level `offline: true` does not set the environment flag, so the resolver's
+source/cache-first path can perform the first download.  The resolver still
+receives an explicit boolean, so an inherited environment value cannot turn that
+fresh-cache bootstrap back into an accidental strict mode.
+
 ## Error behavior
 
 Resolver construction happens inside the existing `get_model()` `try` block.
@@ -65,11 +85,11 @@ separate migration and regression test.
 
 `tests/test_profile_model_wiring.py` loads the application bridge with mocked
 optional desktop/audio dependencies and verifies that profile resolver settings
-and the app-selected cache reach a fake `NemotronModel`.  It also checks that
-resolver errors remain visible and that faster-whisper construction is
-unchanged.  `tests/test_nemotron_model_resolution.py` covers the legacy
-positional/direct-ID constructor shape alongside the existing local-snapshot
-and integrity tests.
+and the app-selected cache reach a fake `NemotronModel`.  It also checks the
+fresh-cache legacy-offline bootstrap, explicit resolver/profile strictness,
+resolver errors, and unchanged faster-whisper construction.
+`tests/test_nemotron_model_resolution.py` covers the legacy positional/direct-ID
+constructor shape alongside the existing local-snapshot and integrity tests.
 
 ## Remaining product work
 
@@ -83,6 +103,8 @@ and integrity tests.
   missing-file, size, and SHA-256 details before torch is imported.  A repair
   or quarantine action should be explicit and must not turn into an implicit
   cloud fallback.
-* Decide how first-use downloads should be presented when offline mode is
-  enabled but no complete local snapshot exists, and whether a user-facing
-  opt-in should relax the strict offline setting.
+* Present first-use downloads clearly in the loading UI when the legacy
+  top-level offline setting is active but no complete local snapshot exists;
+  the resolver now deliberately permits that configured source path until the
+  cache is populated.  An explicit `model_resolver.offline` or profile offline
+  setting remains strict.
