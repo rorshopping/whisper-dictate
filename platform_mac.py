@@ -38,8 +38,10 @@ import threading
 import time
 import tkinter
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-LOCK_FILE = os.path.join(BASE_DIR, ".app.lock")
+import app_paths
+
+BASE_DIR = app_paths.data_dir()
+LOCK_FILE = app_paths.lock_path()
 
 _installed = False
 _main_thread = threading.main_thread()

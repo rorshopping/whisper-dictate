@@ -16,9 +16,10 @@ import os
 import threading
 from datetime import datetime, timezone
 
+import app_paths
 import main as app
 
-HISTORY_FILE = os.path.join(app.BASE_DIR, "transcription-history.jsonl")
+HISTORY_FILE = app_paths.history_path()
 _HISTORY_LOCK = threading.Lock()
 
 
@@ -44,6 +45,7 @@ def save_history(profile, text, duration_s):
     }
     try:
         with _HISTORY_LOCK:
+            os.makedirs(os.path.dirname(HISTORY_FILE) or ".", exist_ok=True)
             with open(HISTORY_FILE, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
     except Exception as exc:
@@ -51,9 +53,14 @@ def save_history(profile, text, duration_s):
 
 
 def open_history():
-    if not os.path.exists(HISTORY_FILE):
-        with open(HISTORY_FILE, "a", encoding="utf-8"):
-            pass
+    try:
+        os.makedirs(os.path.dirname(HISTORY_FILE) or ".", exist_ok=True)
+        if not os.path.exists(HISTORY_FILE):
+            with open(HISTORY_FILE, "a", encoding="utf-8"):
+                pass
+    except Exception as exc:
+        app.log(f"History file could not be created: {exc}")
+        return
     try:
         if os.name == "nt":
             os.startfile(HISTORY_FILE)
