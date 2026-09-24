@@ -392,3 +392,36 @@ qualification, a real GitHub Actions release run, and publication of a final
 artifact manifest. The Vercel GitHub App connection also needs to be enabled
 in the Vercel dashboard; current production deployment was performed through
 the authenticated CLI.
+
+## Release execution update — 2026-09-25
+
+The external release gates were completed for a clearly labeled **community
+preview**; this supersedes the earlier "blocked" status above for the first
+preview, but not the remaining qualification items.
+
+- macOS Apple Silicon build: 105 tests passed on the Mac; the app passed the
+  release guard and arm64 check. Developer ID signing used the explicit Mac
+  identity, and Apple notarization submission
+  `3bff589b-3bdd-4d44-ae5c-78dda3354525` was accepted. Stapling,
+  `codesign --verify --deep --strict`, Gatekeeper, ZIP extraction, and the
+  release guard all passed.
+- The published macOS ZIP is
+  `WhisperDictate-0.1.0-macos-arm64-notarized.zip`, 329,337,312 bytes,
+  SHA-256 `6dcfd2ca1a270cd893094a62fa09f9f49ad7f8ed2a693164b5f7322b873c87b2`.
+  AppleDouble/resource-fork metadata was removed from the final archive and the
+  packaging script/test were fixed accordingly.
+- Windows x64 portable ZIP:
+  `WhisperDictate-0.1.0-windows-x64-unsigned.zip`, 366,226,459 bytes,
+  SHA-256 `cb2a514d0456e485ca539fbaf31100188b851dda8898ee8bf330bf561d1d9e6c`.
+  It is explicitly labeled an unsigned preview; no Authenticode certificate is
+  being claimed.
+- Public prerelease:
+  `https://github.com/rorshopping/whisper-dictate-community/releases/tag/community-v0.1.0`.
+  It contains both ZIPs, `release-manifest.json`, and `SHA256SUMS`.
+- The Vercel production manifest was updated and deployed at
+  `https://whisper-dictate-community-web.vercel.app`; the live manifest,
+  GitHub asset URLs, and published metadata were checked after deployment.
+- Installers, Windows Authenticode signing, a project-controlled model mirror,
+  final legal/SBOM review, and clean-machine microphone/model-load acceptance
+  remain future work. Model weights are still acquired on first use and are not
+  bundled in either artifact.
