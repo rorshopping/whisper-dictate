@@ -4,10 +4,11 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 
-from model_manager import ModelManifest
+from model_manager import ModelManifest, ResolvedModel
 from nemotron_engine import NemotronModel
 
 
@@ -58,6 +59,38 @@ class NemotronModelResolutionTests(unittest.TestCase):
             self.assertEqual(model.model_revision, "test-revision")
             self.assertEqual(model.model_source, "local")
             self.assertEqual(model.load_args, ("cpu", "auto"))
+
+    def test_legacy_direct_id_signature_still_constructs(self):
+        contents, manifest = self.make_manifest()
+        calls = []
+
+        class FakeManager:
+            def __init__(self, **kwargs):
+                calls.append(("manager", kwargs))
+
+            def resolve(self, model_id, **kwargs):
+                calls.append((model_id, kwargs))
+                return ResolvedModel(
+                    manifest,
+                    Path("C:/models/fixture"),
+                    "cache",
+                )
+
+        # This is the pre-resolver positional shape: model ID, device,
+        # compute type, and logger remain valid with no new keyword arguments.
+        with patch("model_manager.ModelManager", FakeManager):
+            model = ShellNemotron(
+                "fixture/nemotron",
+                "cpu",
+                "auto",
+                None,
+            )
+
+        self.assertEqual(model.model_id, "fixture/nemotron")
+        self.assertEqual(model.model_path, Path("C:/models/fixture"))
+        self.assertEqual(model.model_revision, manifest.revision)
+        self.assertEqual(calls[1][0], "fixture/nemotron")
+        self.assertEqual(model.load_args, ("cpu", "auto"))
 
     def test_transformers_load_is_local_only_and_revision_pinned(self):
         calls = []
