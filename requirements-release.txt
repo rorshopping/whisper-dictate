@@ -1,0 +1,10 @@
+# Build-only dependency declaration for PyInstaller release jobs.
+# Keep the runtime dependency list in requirements.txt as the single source of
+# truth; do not copy a second hand-maintained package list into the workflow.
+-r requirements.txt
+
+# Optional runtime accelerator used by the bundled fuzzy hotword pass.
+rapidfuzz>=3.0
+
+# PyInstaller is needed only while building the release package.
+pyinstaller>=6.16

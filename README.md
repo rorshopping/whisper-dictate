@@ -360,6 +360,8 @@ Common notes:
 - **Packaged builds**: tag a `v*` release and GitHub Actions builds
   Windows/macOS bundles via `WhisperDictate.spec` (PyInstaller) and attaches
   them to a draft release. Locally:
-  `pyinstaller --noconfirm --clean WhisperDictate.spec`.
+  `pyinstaller --noconfirm --clean WhisperDictate.spec`. The CI draft is
+  unsigned; complete the archive guard, checksum manifest, and signing gates in
+  [`NOTES_release-hygiene.md`](NOTES_release-hygiene.md) before publication.
 
 Bugs and pull requests are welcome right here on GitHub.
