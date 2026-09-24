@@ -52,3 +52,17 @@ Date: 2026-09-24
 The current paid site and the alternate free site must not both claim to be the
 latest product. Before launch, select one canonical website and either archive,
 redirect, or clearly mark the other channel as historical/preview.
+
+## Execution update — 2026-09-25
+
+The first public channel is now a **prerelease**, not a stable signed release:
+
+- GitHub Releases: `https://github.com/rorshopping/whisper-dictate-community/releases/tag/community-v0.1.0`
+- Vercel website/manifest: `https://whisper-dictate-community-web.vercel.app`
+- macOS Apple Silicon portable ZIP: Developer ID signed, notarized, stapled, and Gatekeeper-assessed.
+- Windows x64 portable ZIP: explicitly labeled unsigned preview; Authenticode signing remains a future gate.
+- Installers, a project-controlled model mirror, final legal/SBOM review, and clean-machine acceptance remain future work.
+
+The prerelease wording is intentional: it does not represent the paid product,
+does not bundle model weights, and does not claim that the Windows artifact is
+signed. Stable-release claims should wait for the remaining gates.
