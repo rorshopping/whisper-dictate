@@ -7,9 +7,13 @@ import os
 
 datas = [
     ('assets', 'assets'),
+    # config.json is a bundled default only.  app_paths copies/merges it into
+    # the writable per-user (or PortableData) directory at frozen startup.
+    ('config.json', '.'),
     ('hotwords-en.txt', '.'),
     ('hotwords-de.txt', '.'),
     ('corrections-en.txt', '.'),
+    ('corrections-de.txt', '.'),
     ('snippets-en.txt', '.'),
     ('snippets-de.txt', '.'),
     ('README.md', '.'),

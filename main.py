@@ -19,16 +19,29 @@ import pystray
 import sounddevice as sd
 from PIL import Image, ImageDraw
 
+import app_paths
 import license_gate
 import hotkey_settings
 from sound_cues import DEFAULT_THEME, SoundPlayer, build_sound_menu
 
-if getattr(sys, "frozen", False):
-    # PyInstaller build: keep writable files (config, log, personal vocab)
-    # next to the real exe, not inside the read-only _internal bundle dir.
-    BASE_DIR = os.path.dirname(os.path.abspath(sys.executable))
-else:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Keep the historical BASE_DIR name for extensions that imported it, but make
+# it mean the writable data root.  Resources are resolved separately below;
+# in a frozen build they live in PyInstaller's resource root (_MEIPASS).
+RESOURCE_DIR = app_paths.resource_dir()
+DATA_DIR = app_paths.ensure_initialized()
+BASE_DIR = DATA_DIR
+CONFIG_PATH = app_paths.config_path()
+LOG_PATH = app_paths.log_path()
+HISTORY_PATH = app_paths.history_path()
+LOCK_PATH = app_paths.lock_path()
+MODEL_CACHE_DIR = app_paths.model_cache_dir()
+
+# Hugging Face otherwise chooses a platform-specific home cache.  Keep the
+# old source-mode cache, but make frozen/portable model downloads follow the
+# selected writable data root as well.
+if app_paths.is_frozen() or app_paths.portable_requested():
+    os.environ.setdefault("HF_HUB_CACHE", MODEL_CACHE_DIR)
+    os.environ.setdefault("HF_HOME", os.path.dirname(MODEL_CACHE_DIR))
 
 APP_NAME = "Whisper Dictate"
 
@@ -60,18 +73,19 @@ if HEADLESS:
 
 def _read_cfg():
     cfg = {}
-    path = os.path.join(BASE_DIR, "config.json")
-    if os.path.exists(path):
+    if os.path.exists(CONFIG_PATH):
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                cfg = loaded
         except Exception:
             cfg = {}
     return cfg
 
 
 def _models_cached(cfg):
-    cache = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+    cache = MODEL_CACHE_DIR
     # faster-whisper models live in "models--<org>--faster-whisper-<name>" (the
     # org differs per model: Systran, mobiuslabsgmbh, ...), so match on the repo
     # basename only. Full HF repo ids (containing "/") such as the Nemotron
@@ -126,7 +140,7 @@ class _RotatingLog(RotatingFileHandler):
 
 
 _log_handler = _RotatingLog(
-    os.path.join(BASE_DIR, "dictate.log"),
+    LOG_PATH,
     maxBytes=1_000_000,
     backupCount=2,
     encoding="utf-8",
@@ -153,7 +167,7 @@ if not DOCTOR:
                 pass
             sys.exit(0)
     else:
-        _LOCK_FILE = os.path.join(BASE_DIR, ".app.lock")
+        _LOCK_FILE = LOCK_PATH
         try:
             _lf = os.open(_LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             os.write(_lf, str(os.getpid()).encode())
@@ -231,41 +245,54 @@ DEFAULTS = {
 }
 
 
+# A frozen build gets a real user config seeded from the bundle and is
+# updated when new defaults are introduced.  A source checkout is left alone
+# so importing the app never rewrites its tracked configuration.
+if (
+    app_paths.is_frozen()
+    or app_paths.portable_requested()
+    or os.environ.get(app_paths.DATA_DIR_ENV)
+):
+    app_paths.ensure_config(DEFAULTS, merge=True)
+
+
 def load_config():
     cfg = dict(DEFAULTS)
-    path = os.path.join(BASE_DIR, "config.json")
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            cfg.update(json.load(f))
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                user_cfg = json.load(f)
+            if isinstance(user_cfg, dict):
+                cfg.update(user_cfg)
+            else:
+                logging.warning("Ignoring non-object config: %s", CONFIG_PATH)
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            logging.warning("Could not read config %s: %s", CONFIG_PATH, exc)
     # Untracked machine-specific overrides (e.g. the copyright holder's own
-    # license_required:false); never shipped or committed.
-    local = os.path.join(BASE_DIR, "config.local.json")
+    # license_required:false); never shipped or committed.  They belong to
+    # the selected writable data root, never to the resource bundle.
+    local = os.path.join(DATA_DIR, "config.local.json")
     if os.path.exists(local):
-        with open(local, "r", encoding="utf-8") as f:
-            cfg.update(json.load(f))
+        try:
+            with open(local, "r", encoding="utf-8") as f:
+                local_cfg = json.load(f)
+            if isinstance(local_cfg, dict):
+                cfg.update(local_cfg)
+            else:
+                logging.warning("Ignoring non-object local config: %s", local)
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            logging.warning("Could not read local config %s: %s", local, exc)
     return cfg
 
 
 def _resource_path(path):
-    """Read-only bundled resources: an exe-dir copy wins over the shipped one."""
-    if os.path.isabs(path):
-        return path
-    candidates = [os.path.join(BASE_DIR, path)]
-    meipass = getattr(sys, "_MEIPASS", None)
-    if getattr(sys, "frozen", False) and meipass:
-        candidates.append(os.path.join(meipass, path))
-    for cand in candidates:
-        if os.path.exists(cand):
-            return cand
-    return candidates[0]
+    """Read-only bundled resources from PyInstaller's resource root."""
+    return app_paths.resource_path(path)
 
 
 def _local_path(path):
-    """Personal overrides live next to the tracked file as *.local.txt and are
-    gitignored, so private vocabulary never ends up in a public repo."""
-    full = _resource_path(path)
-    root, ext = os.path.splitext(full)
-    return root + ".local" + (ext or ".txt")
+    """Return a writable ``*.local.txt`` companion in the data root."""
+    return app_paths.local_path(path)
 
 
 def _read_lines(path):
@@ -612,7 +639,7 @@ def log(msg):
         pass
 
 
-sound_player = SoundPlayer(BASE_DIR)
+sound_player = SoundPlayer(resource_dir=RESOURCE_DIR)
 
 
 def play_cue(event):
@@ -1178,7 +1205,7 @@ def _save_failed_audio(profile, audio):
     if audio is None or audio.size == 0:
         return None
     try:
-        out_dir = os.path.join(BASE_DIR, "lost_audio")
+        out_dir = os.path.join(DATA_DIR, "lost_audio")
         os.makedirs(out_dir, exist_ok=True)
         path = os.path.join(
             out_dir, f"{time.strftime('%Y%m%d-%H%M%S')}-{profile.name}.wav"
@@ -1573,16 +1600,23 @@ def _apply_hotkey_changes(changes):
             COMMAND_HOTKEY = combo
     if "history" in changes:
         cfg["history_hotkey"] = list(changes["history"])
-    path = os.path.join(BASE_DIR, "config.json")
+    path = CONFIG_PATH
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except Exception:
+        if not isinstance(data, dict):
+            raise ValueError("config root is not an object")
+    except FileNotFoundError:
         data = dict(cfg)
+    except Exception as exc:
+        log(f"Hotkey changes not saved; existing config was preserved: {exc}")
+        return
     data = hotkey_settings.apply_changes_to_config(data, changes)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    try:
+        app_paths.save_config(data, path)
+    except Exception as exc:
+        log(f"Hotkey changes could not be saved: {exc}")
+        return
     log(f"Hotkeys changed: {', '.join(sorted(changes))}")
 
 
@@ -1667,7 +1701,7 @@ def run_doctor():
 
     # Config
     try:
-        with open(os.path.join(BASE_DIR, "config.json"), "r", encoding="utf-8") as f:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             file_cfg = json.load(f)
         check("config.json parses", True, f"{len(file_cfg)} top-level keys")
     except FileNotFoundError:
@@ -1767,7 +1801,7 @@ def run_doctor():
         check("clipboard access", True)
     except Exception as exc:
         check("clipboard access", False, str(exc))
-    check("data folder writable", os.access(BASE_DIR, os.W_OK), BASE_DIR)
+    check("data folder writable", app_paths.is_writable_dir(DATA_DIR), DATA_DIR)
 
     failed = results.count(False)
     print(f"\n{len(results) - failed}/{len(results)} checks passed.")
@@ -1905,7 +1939,7 @@ def main():
         pystray.MenuItem("Paste last transcription", paste_last),
         pystray.MenuItem("Sounds", build_sound_menu(
             pystray.Menu, pystray.MenuItem, cfg,
-            os.path.join(BASE_DIR, "config.json"), sound_player,
+            CONFIG_PATH, sound_player,
             lambda icon, message: icon.notify(message, APP_NAME) if icon else log(message),
         )),
         pystray.MenuItem("Show microphone devices", _open_audio_settings),

@@ -31,6 +31,7 @@ def save_preferences(path, cfg, *, enabled, theme):
     if theme not in {t[0] for t in THEMES}:
         raise ValueError(f"Unknown sound theme: {theme}")
     path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     data.update(sound=bool(enabled), sound_theme=theme)
     # Write then replace atomically; never truncate the user's configuration.
@@ -49,8 +50,32 @@ def save_preferences(path, cfg, *, enabled, theme):
 
 
 class SoundPlayer:
-    def __init__(self, base_dir):
-        self.directory = Path(base_dir) / "assets" / "sounds"
+    def __init__(self, base_dir=None, *, resource_dir=None):
+        """Create a player rooted at a bundled resource directory.
+
+        ``base_dir`` is retained for source-mode callers and existing tests;
+        frozen callers should pass ``resource_dir=app_paths.resource_dir()``
+        so sounds are read from PyInstaller's resource root rather than from
+        the executable's writable-data location.
+        """
+        root = resource_dir if resource_dir is not None else base_dir
+        if root is None:
+            import app_paths
+
+            root = app_paths.resource_dir()
+        elif resource_dir is None and base_dir is not None:
+            # A frozen caller may still pass the executable directory (the
+            # historical constructor argument). Resolve that case to the
+            # PyInstaller resource root when it is available, while leaving
+            # source-mode temporary directories untouched for tests/users.
+            import app_paths
+
+            if app_paths.is_frozen():
+                # In a bundle the executable directory is not a resource root;
+                # always prefer PyInstaller's resource tree, even if a stale
+                # user-created assets directory happens to exist beside it.
+                root = app_paths.resource_dir()
+        self.directory = Path(root) / "assets" / "sounds"
         self._lock = threading.Lock()
         self._process = None
         self._warned = set()
