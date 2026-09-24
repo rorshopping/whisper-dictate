@@ -216,6 +216,7 @@ DEFAULTS = {
             "hotkey": ["ctrl", "shift", "space"],
             "engine": "nemotron",
             "model": "nvidia/nemotron-speech-streaming-en-0.6b",
+            "model_revision": "ebe59e5a817142986528bbbee5dba8db7b38ed50",
             "language": "en",
             "hotwords_file": "hotwords-en.txt",
             "labels": {
@@ -231,6 +232,7 @@ DEFAULTS = {
             "hotkey": ["ctrl", "alt", "space"],
             "engine": "nemotron",
             "model": "nvidia/nemotron-3.5-asr-streaming-0.6b",
+            "model_revision": "ea30d66debe3740a08b573244286791d423d6b3e",
             "language": "de",
             "hotwords_file": "hotwords-de.txt",
             "labels": {
@@ -508,6 +510,15 @@ class Profile:
             "nemotron" if "/" in self.model else "faster-whisper"
         )
         self.language = p.get("language", "en")
+        # Keep the original profile mapping available to the resolver bridge.
+        # Resolver-specific keys are deliberately not flattened into the
+        # long-standing Profile fields above, so older extensions and config
+        # writers continue to see the same profile surface.
+        self._profile_config = dict(p)
+        # This is also useful to callers that only need the pinned identity.
+        # The full precedence rules (top-level model_resolver vs profile
+        # overrides) are applied lazily by _nemotron_model_options().
+        self.model_revision = p.get("model_revision", p.get("revision"))
         self.hotwords_file = p.get("hotwords_file", "hotwords.txt")
         self.hotwords = load_hotwords(self.hotwords_file)
         # Canonical spellings for the fuzzy hotword pass
@@ -542,6 +553,90 @@ class Profile:
 
 cfg = load_config()
 profiles = [Profile(i, p) for i, p in enumerate(cfg.get("profiles") or DEFAULTS["profiles"])]
+
+
+def _nemotron_model_options(profile, config=None):
+    """Return the model reference and resolver kwargs for one profile.
+
+    ``Profile`` intentionally keeps the historical fields above, while
+    ``model_manager`` owns the precedence rules for the newer resolver keys.
+    Parsing here (rather than at import time) means a malformed profile is
+    reported by the normal model-load error path and does not prevent the rest
+    of the application from starting.
+
+    The cache directory is supplied explicitly from :mod:`app_paths`.  The
+    checked-in configuration historically contained a home-directory cache
+    path, which is correct for a source checkout but not for a frozen or
+    portable installation.  Passing the selected path explicitly prevents the
+    resolver from falling back to its own environment/home default.  A
+    deliberate non-default cache path remains configurable.
+    """
+    from model_manager import parse_model_config
+
+    raw_profile = getattr(profile, "_profile_config", None)
+    if raw_profile is None:
+        # Keep the helper usable with lightweight Profile-like objects in
+        # integrations and tests.
+        raw_profile = {
+            "model": getattr(profile, "model", None),
+            "language": getattr(profile, "language", None),
+        }
+        revision = getattr(profile, "model_revision", None)
+        if revision is not None:
+            raw_profile["model_revision"] = revision
+
+    settings = parse_model_config(
+        cfg if config is None else config,
+        raw_profile,
+    )
+
+    def normalized_path(value):
+        return os.path.normcase(
+            os.path.abspath(
+                os.path.expandvars(os.path.expanduser(os.fspath(value)))
+            )
+        )
+
+    # Keep an explicitly selected non-default cache usable, but treat the
+    # historical home-cache value in the bundled config as a default.  That
+    # value is correct in source mode and must not pull a frozen/portable
+    # install back into the user's home directory.
+    configured_cache = settings.cache_dir
+    legacy_cache = os.path.join(
+        os.path.expanduser("~"), ".cache", "huggingface", "hub"
+    )
+    cache_dir = (
+        MODEL_CACHE_DIR
+        if configured_cache is None
+        or normalized_path(configured_cache) == normalized_path(legacy_cache)
+        else configured_cache
+    )
+
+    model_reference = settings.model_id or profile.model
+    language = getattr(profile, "language", None) or settings.language
+    options = {
+        # The engine keeps the profile language explicit, both for resolver
+        # validation and for the multilingual prompt.
+        "language": language,
+        "revision": settings.revision,
+        "source_order": settings.source_order,
+        "mirror_url": settings.mirror_url,
+        "huggingface_endpoint": settings.huggingface_endpoint,
+        "offline": settings.offline,
+        # This is deliberately the app-selected cache (or an explicit
+        # non-default user cache), never a manager environment fallback.
+        "cache_dir": cache_dir,
+    }
+    for name, value in (
+        ("local_model_path", settings.local_path),
+        ("local_model_dir", settings.local_model_dir),
+        ("cache_path", settings.cache_path),
+    ):
+        if value is not None:
+            options[name] = value
+    if settings.manifest is not None:
+        options["manifest"] = settings.manifest
+    return model_reference, options
 
 
 def _resolve_runtime():
@@ -1272,8 +1367,13 @@ def get_model(profile):
                     # and are only needed for Nemotron profiles.
                     from nemotron_engine import NemotronModel
 
+                    model_reference, model_options = _nemotron_model_options(profile)
                     profile.model_obj = NemotronModel(
-                        profile.model, device=DEVICE, compute_type=COMPUTE, log=log
+                        model_reference,
+                        device=DEVICE,
+                        compute_type=COMPUTE,
+                        log=log,
+                        **model_options,
                     )
                 else:
                     from faster_whisper import WhisperModel
@@ -1282,9 +1382,13 @@ def get_model(profile):
                         profile.model, device=DEVICE, compute_type=COMPUTE
                     )
             except Exception as exc:
+                # Keep resolver failures (missing, incomplete, or corrupt
+                # snapshots) in the normal model-load error path.  In
+                # particular, never turn one into a second cloud-backed load.
+                log(f"[{profile.name}] Model load failed: {exc}")
                 # Out-of-memory (other apps hogging RAM/VRAM) needs a message
-                # the user actually sees; every other failure keeps the old
-                # log-only behavior and still propagates unchanged.
+                # the user actually sees; every other failure still propagates
+                # unchanged to the existing UI/preload error handling.
                 if _is_memory_error(exc):
                     _notify_out_of_memory(profile, exc)
                 raise
