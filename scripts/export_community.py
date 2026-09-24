@@ -39,7 +39,6 @@ MODEL_LICENSES_NAME = "MODEL_LICENSES.md"
 # into the public application tree.
 _ALLOWLIST_PATHS = (
     "COMMUNITY_RELEASE_DECISION.md",
-    "FEATURE_IDEAS.md",
     "NOTES_portable-paths.md",
     "README.md",
     "THIRD-PARTY-NOTICES.md",
@@ -63,7 +62,6 @@ _ALLOWLIST_PATHS = (
     "run.bat",
     "run_hidden.vbs",
     "run_mac.sh",
-    "scripts/prepare_sounds.py",
     "smart_format.py",
     "snippets-de.txt",
     "snippets-en.txt",
