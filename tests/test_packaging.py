@@ -58,6 +58,21 @@ class WindowsTemplateTests(unittest.TestCase):
         self.assertNotIn("DefaultDirName={commonpf}", self.text)
         self.assertIn('Name: "{app}"; Permissions: users-modify', self.text)
 
+    def test_spec_declares_only_existing_text_resources(self):
+        for resource in (
+            "config.json",
+            "hotwords-en.txt",
+            "hotwords-de.txt",
+            "corrections-en.txt",
+            "corrections-de.txt",
+            "snippets-en.txt",
+            "snippets-de.txt",
+            "README.md",
+            "LICENSE",
+        ):
+            with self.subTest(resource=resource):
+                self.assertTrue((ROOT / resource).is_file())
+
     def test_payload_source_has_no_install_time_model_source(self):
         # The Files section may only consume the prepared onedir payload; it
         # must not add a model archive, model cache, or download step.

@@ -140,6 +140,17 @@ FORBIDDEN_SUFFIXES = frozenset(
         ".keystore",
         ".egg-info",
         ".whl",
+        # Speech-model weights are acquired at runtime, never bundled in a
+        # release archive or onedir payload.
+        ".safetensors",
+        ".ckpt",
+        ".pth",
+        ".pt",
+        ".onnx",
+        ".gguf",
+        ".h5",
+        ".pkl",
+        ".bin",
     }
 )
 
@@ -201,6 +212,8 @@ def forbidden_reason(name: str) -> str | None:
     for component in lowered_parts:
         if component in FORBIDDEN_COMPONENTS:
             return f"forbidden path component: {component}"
+        if component in {"model-cache", "huggingface"} or component.startswith("models--"):
+            return "model cache path"
     if basename in FORBIDDEN_NAMES:
         return f"forbidden filename: {basename}"
     if basename not in PUBLIC_CERTIFICATE_NAMES:

@@ -1,0 +1,4 @@
+# Deterministic post-transcription corrections: wrong => correct, one per line.
+# Applied case-insensitively to every final transcription (fast, no model cost).
+# Personal corrections belong in corrections-de.local.txt (gitignored) so they
+# never end up in the public repository. Both files are merged at runtime.

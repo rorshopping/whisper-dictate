@@ -47,6 +47,7 @@ _ALLOWLIST_PATHS = (
     # main.py imports this path-layer runtime; it is required, not optional.
     "app_paths.py",
     "config.json",
+    "corrections-de.txt",
     "corrections-en.txt",
     "enhanced_features.py",
     "hotkey_settings.py",
@@ -669,7 +670,8 @@ def _community_main(data: bytes) -> bytes:
     )
     text = re.sub(
         r"(?m)^([ \t]*)# Untracked machine-specific overrides \(e\.g\. the copyright holder's own\n"
-        r"\1# license_required:false\); never shipped or committed\.[^\n]*",
+        r"\1# license_required:false\); never shipped or committed\.[ \t]+They belong to\n"
+        r"\1# the selected writable data root, never to the resource bundle\.[^\n]*",
         r"\1# Untracked machine-specific overrides; never shipped or committed.",
         text,
     )

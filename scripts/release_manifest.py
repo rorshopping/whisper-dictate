@@ -45,7 +45,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 MANIFEST_SCHEMA = "whisper-dictate.release-manifest.v1"
 DEFAULT_MANIFEST = "release-manifest.json"
@@ -123,6 +123,17 @@ def build_manifest(
 
     if not assets:
         raise ValueError("at least one release asset is required")
+    if download_base_url:
+        parsed_base = urlparse(download_base_url)
+        if (
+            parsed_base.scheme.lower() != "https"
+            or not parsed_base.netloc
+            or parsed_base.username
+            or parsed_base.password
+        ):
+            raise ValueError(
+                "download_base_url must be an HTTPS URL without embedded credentials"
+            )
 
     paths = [Path(asset) for asset in assets]
     names = [path.name for path in paths]

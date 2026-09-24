@@ -42,6 +42,15 @@ class ArchiveDenylistTests(unittest.TestCase):
             "WhisperDictate/Thumbs.db",
             "WhisperDictate/notes.tmp",
             "WhisperDictate/signing-key.pem",
+            "WhisperDictate/model.safetensors",
+            "WhisperDictate/model.gguf",
+            "WhisperDictate/model.ckpt",
+            "WhisperDictate/model.onnx",
+            "WhisperDictate/model.pt",
+            "WhisperDictate/model.pth",
+            "WhisperDictate/model.bin",
+            "WhisperDictate/models--nvidia--nemotron/snapshots/revision/config.json",
+            "WhisperDictate/huggingface/hub/model/config.json",
         ]
         violations = find_forbidden_paths(denied)
         self.assertEqual(len(violations), len(denied))
@@ -53,6 +62,7 @@ class ArchiveDenylistTests(unittest.TestCase):
             "WhisperDictate/_internal/README.md",
             "WhisperDictate/_internal/assets/sounds/message-chime-done.wav",
             "WhisperDictate/_internal/certifi/cacert.pem",
+            "WhisperDictate/_internal/transformers/models/bert/configuration_bert.py",
             "WhisperDictate/config.json",
             "WhisperDictate/LICENSE",
         ]
@@ -135,6 +145,18 @@ class ChecksumManifestTests(unittest.TestCase):
                 windows_entry["url"],
                 "https://downloads.example/releases/v9.9.9/WhisperDictate-v9.9.9-windows-x64.zip",
             )
+
+    def test_manifest_rejects_insecure_or_credentialed_download_base(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            asset = Path(tmp) / "WhisperDictate-v1.0.0-windows-x64.zip"
+            asset.write_bytes(b"payload")
+            for base in (
+                "http://downloads.example/release",
+                "https://user:password@downloads.example/release",
+            ):
+                with self.subTest(base=base):
+                    with self.assertRaises(ValueError):
+                        build_manifest([asset], download_base_url=base)
 
     def test_manifest_and_sha256sums_are_written_as_machine_readable_files(self):
         with tempfile.TemporaryDirectory() as tmp:

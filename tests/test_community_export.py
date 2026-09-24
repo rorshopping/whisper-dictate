@@ -35,6 +35,10 @@ class CommunityExportTests(unittest.TestCase):
             import license_gate
             import tkinter
 
+            # Untracked machine-specific overrides (e.g. the copyright holder's own
+            # license_required:false); never shipped or committed. They belong to
+            # the selected writable data root, never to the resource bundle.
+
             DEFAULTS = {
                 "license_required": True,
                 "license_api": "https://whisperdictate.vercel.app/api",
@@ -118,6 +122,7 @@ class CommunityExportTests(unittest.TestCase):
                 }
             ),
         )
+        write("corrections-de.txt", "# fixture German corrections\n")
         write("assets/sounds/SOURCES.md", "# CC0 sound sources\n")
         write("assets/sounds/manifest.json", "[]\n")
         write("FEATURE_IDEAS.md", "# Feature ideas\n")
@@ -166,6 +171,7 @@ class CommunityExportTests(unittest.TestCase):
                 "model_manager.py",
                 "main.py",
                 "config.json",
+                "corrections-de.txt",
                 "tests/test_app_paths.py",
                 "tests/test_model_manager.py",
                 "NOTES_model-resolver.md",
@@ -219,6 +225,7 @@ class CommunityExportTests(unittest.TestCase):
             self.assertNotIn("whisperdictate.vercel.app", main_text)
             self.assertNotIn("license_required", main_text)
             self.assertNotIn("license_api", main_text)
+            self.assertNotIn("the selected writable data root", main_text)
             config = json.loads((output / "config.json").read_text(encoding="utf-8"))
             self.assertTrue(config["offline"])
             self.assertEqual(config["nested"], {"safe": "kept"})
