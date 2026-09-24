@@ -3,7 +3,7 @@
   "project": {
     "name": "Whisper Dictate",
     "edition": "Community Edition",
-    "repository": "https://github.com/rorshopping/whisper-dictate",
+    "repository": "https://github.com/rorshopping/whisper-dictate-community",
     "source_ref": "master"
   },
   "generated_at": "2026-09-24",
@@ -15,10 +15,10 @@
     "notes": "No canonical community release has been published. Replace this manifest only after verified artifacts and checksums exist."
   },
   "source": {
-    "repository": "https://github.com/rorshopping/whisper-dictate",
-    "readme": "https://github.com/rorshopping/whisper-dictate#readme",
-    "license": "https://github.com/rorshopping/whisper-dictate/blob/master/LICENSE",
-    "third_party_notices": "https://github.com/rorshopping/whisper-dictate/blob/master/THIRD-PARTY-NOTICES.md"
+    "repository": "https://github.com/rorshopping/whisper-dictate-community",
+    "readme": "https://github.com/rorshopping/whisper-dictate-community#readme",
+    "license": "https://github.com/rorshopping/whisper-dictate-community/blob/master/LICENSE",
+    "third_party_notices": "https://github.com/rorshopping/whisper-dictate-community/blob/master/THIRD-PARTY-NOTICES.md"
   },
   "artifacts": [
     {
