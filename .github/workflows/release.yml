@@ -5,60 +5,190 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# Build jobs only need to read the repository.  The final draft-release job is
+# the sole job granted write access, so a compromised build step cannot alter
+# repository or release metadata.
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   windows:
+    name: Build Windows x64 artifact
     runs-on: windows-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      # CPU torch is the default PyPI wheel on Windows - the bundled build
-      # runs everywhere and falls back from GPU to CPU at runtime.
-      - name: Install dependencies
-        run: pip install faster-whisper sounddevice numpy pystray pynput pyperclip Pillow torch transformers librosa rapidfuzz pyinstaller
+      - name: Verify Windows runner architecture
+        shell: pwsh
+        run: |
+          $machine = python -c "import platform; print(platform.machine())"
+          Write-Host "Runner architecture: $machine"
+          if ($machine -notmatch '^(AMD64|amd64|x86_64)$') {
+            throw "This release job requires an x64 Windows runner (got $machine)"
+          }
+
+      # requirements-release.txt includes requirements.txt and adds only
+      # the build-time tools; do not maintain a second package list here.
+      - name: Install declared dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements-release.txt
+
+      - name: Verify dependency environment
+        run: python -m pip check
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -p "test_*.py" -v
 
       - name: Build
-        run: pyinstaller --noconfirm --clean WhisperDictate.spec
+        run: python -m PyInstaller --noconfirm --clean WhisperDictate.spec
 
-      - name: Zip
-        run: Compress-Archive -Path dist/WhisperDictate/* -DestinationPath WhisperDictate-${{ github.ref_name }}-windows-x64.zip
+      - name: Create and inspect Windows archive
+        shell: pwsh
+        run: |
+          $archive = "WhisperDictate-${{ github.ref_name }}-windows-x64.zip"
+          if (Test-Path $archive) { Remove-Item -Force $archive }
+          python scripts/release_guard.py dist/WhisperDictate
+          Compress-Archive -Path "dist/WhisperDictate/*" -DestinationPath $archive
+          python scripts/release_guard.py $archive
+          python scripts/release_manifest.py $archive `
+            --output "WhisperDictate-${{ github.ref_name }}-windows-x64.manifest.json" `
+            --checksums "WhisperDictate-${{ github.ref_name }}-windows-x64.sha256" `
+            --release "${{ github.ref_name }}" `
+            --download-base-url "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}"
 
-      - name: Attach to release
-        uses: softprops/action-gh-release@v2
+      - name: Upload Windows release files
+        uses: actions/upload-artifact@v4
         with:
-          draft: true
-          files: WhisperDictate-${{ github.ref_name }}-windows-x64.zip
+          name: release-windows
+          if-no-files-found: error
+          path: |
+            WhisperDictate-${{ github.ref_name }}-windows-x64.zip
+            WhisperDictate-${{ github.ref_name }}-windows-x64.sha256
+            WhisperDictate-${{ github.ref_name }}-windows-x64.manifest.json
 
   macos:
-    runs-on: macos-latest
+    name: Build macOS arm64 artifact
+    runs-on: macos-14
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: pip install faster-whisper sounddevice numpy pystray pynput pyperclip Pillow torch transformers librosa rapidfuzz pyinstaller
-
-      # On macOS the spec's BUNDLE emits dist/WhisperDictate.app; ship the
-      # stapled-or-unsigned bundle as a zip.
-      - name: Build
-        run: pyinstaller --noconfirm --clean WhisperDictate.spec
-
-      - name: Zip
+      - name: Verify macOS runner architecture
         run: |
-          cd dist
-          ditto -c -k --sequesterRsrc --keepParent WhisperDictate.app "../WhisperDictate-${{ github.ref_name }}-macos-arm64.zip"
+          echo "Runner architecture: $(uname -m)"
+          test "$(uname -m)" = "arm64"
 
-      - name: Attach to release
+      # requirements-release.txt includes requirements.txt and adds only
+      # the build-time tools; do not maintain a second package list here.
+      - name: Install declared dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements-release.txt
+
+      - name: Verify dependency environment
+        run: python -m pip check
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Build
+        run: python -m PyInstaller --noconfirm --clean WhisperDictate.spec
+
+      - name: Create and inspect macOS archive
+        shell: bash
+        run: |
+          archive="WhisperDictate-${{ github.ref_name }}-macos-arm64.zip"
+          rm -f "$archive"
+          python scripts/release_guard.py dist/WhisperDictate.app
+          ditto -c -k --sequesterRsrc --keepParent \
+            dist/WhisperDictate.app "$archive"
+          python scripts/release_guard.py "$archive"
+          python scripts/release_manifest.py "$archive" \
+            --output "WhisperDictate-${{ github.ref_name }}-macos-arm64.manifest.json" \
+            --checksums "WhisperDictate-${{ github.ref_name }}-macos-arm64.sha256" \
+            --release "${{ github.ref_name }}" \
+            --download-base-url "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}"
+
+      - name: Upload macOS release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          if-no-files-found: error
+          path: |
+            WhisperDictate-${{ github.ref_name }}-macos-arm64.zip
+            WhisperDictate-${{ github.ref_name }}-macos-arm64.sha256
+            WhisperDictate-${{ github.ref_name }}-macos-arm64.manifest.json
+
+  draft-release:
+    name: Create draft release with checksums
+    needs: [windows, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download built release files
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Re-check downloaded archives
+        run: |
+          shopt -s nullglob
+          archives=(release-assets/*.zip)
+          test "${#archives[@]}" -eq 2
+          python scripts/release_guard.py "${archives[@]}"
+
+      - name: Generate aggregate manifest and checksums
+        run: |
+          shopt -s nullglob
+          archives=(release-assets/*.zip)
+          test "${#archives[@]}" -eq 2
+          python scripts/release_manifest.py "${archives[@]}" \
+            --output release-manifest.json \
+            --checksums SHA256SUMS \
+            --release "${{ github.ref_name }}" \
+            --download-base-url "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}"
+
+      # CI intentionally produces unsigned qualification artifacts.  Windows
+      # Authenticode signing and macOS Developer ID signing/notarization are
+      # required operator gates documented in NOTES_release-hygiene.md; no
+      # signing secret names or values are assumed by this workflow.
+      - name: Attach files to a draft release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
           draft: true
-          files: WhisperDictate-${{ github.ref_name }}-macos-arm64.zip
+          generate_release_notes: false
+          fail_on_unmatched_files: true
+          files: |
+            release-assets/*.zip
+            release-assets/*.sha256
+            release-assets/*.manifest.json
+            release-manifest.json
+            SHA256SUMS
