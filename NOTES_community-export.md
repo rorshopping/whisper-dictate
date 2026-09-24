@@ -38,7 +38,8 @@ manifest is sorted by POSIX path and records byte sizes and SHA-256 hashes.
 The exporter has an explicit exact-path allowlist in
 `scripts/export_community.py`. It includes the application Python modules,
 configuration/data files, tracked sound assets and their documented rebuild
-helper, launch helpers, application tests, `README.md`, `FEATURE_IDEAS.md`,
+helper, launch helpers, the portable path runtime (`app_paths.py`), its
+path-layer tests and notes, application tests, `README.md`, `FEATURE_IDEAS.md`,
 `COMMUNITY_RELEASE_DECISION.md`, and
 `THIRD-PARTY-NOTICES.md`. New files are not copied merely because they are
 present in the checkout; a reviewer must add them to the allowlist.
@@ -68,6 +69,13 @@ license-only configuration are removed, and the paid README section is
 replaced by a community license section. If those expected shapes cannot be
 found safely, the exporter fails closed instead of publishing a partial
 runtime. The source files themselves are not edited.
+
+The portable path layer is treated as a required runtime dependency:
+`app_paths.py`, `tests/test_app_paths.py`, and `NOTES_portable-paths.md` are
+included in the allowlist, and the exporter fails if the generated
+`main.py` loses its `import app_paths` statement. This keeps resource paths,
+writable user data, and portable-mode paths together in the source export;
+private data directories and `*.local.txt` files remain excluded.
 
 The exporter, this notes file, and its maintainer test are release tooling,
 not application payload, and are therefore not copied into the public tree.
