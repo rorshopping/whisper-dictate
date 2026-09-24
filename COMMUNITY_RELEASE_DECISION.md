@@ -17,9 +17,12 @@ Date: 2026-09-24
    owner's confirmation that all included first-party code can be relicensed.
    Third-party dependencies and model weights retain their own licenses.
 
-4. **Distribution:** GitHub Releases is the binary host. Vercel hosts only the
-   website, documentation, and a generated release manifest. Model files use a
-   separate object-storage mirror or an explicitly configured local model pack.
+4. **Distribution:** the new community repository's GitHub Releases is the
+   canonical binary host. The current paid repository and the alternate
+   `whisper-dictate-releases` repository are not the community binary host.
+   Vercel hosts only the website, documentation, and a generated release
+   manifest. Model files use a separate object-storage mirror or an explicitly
+   configured local model pack.
 
 5. **Artifact matrix:** start with Windows x64 CPU portable and macOS Apple
    Silicon portable artifacts. Add signed installers and a separate CUDA build
