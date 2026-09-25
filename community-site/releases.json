@@ -4,21 +4,21 @@
     "name": "Whisper Dictate",
     "edition": "Community Edition",
     "repository": "https://github.com/rorshopping/whisper-dictate-community",
-    "source_ref": "master"
+    "source_ref": "main"
   },
-  "generated_at": "2026-09-24",
+  "generated_at": "2026-09-25",
   "release": {
-    "status": "placeholder",
-    "version": null,
-    "published_at": null,
-    "release_page": null,
-    "notes": "No canonical community release has been published. Replace this manifest only after verified artifacts and checksums exist."
+    "status": "published",
+    "version": "0.1.0",
+    "published_at": "2026-09-25T17:05:39Z",
+    "release_page": "https://github.com/rorshopping/whisper-dictate-community/releases/tag/community-v0.1.0",
+    "notes": "Community preview: the Windows x64 portable ZIP is explicitly unsigned; the macOS Apple Silicon portable ZIP is Developer ID signed, notarized, stapled, and Gatekeeper-assessed. Installers remain unavailable until separately verified."
   },
   "source": {
     "repository": "https://github.com/rorshopping/whisper-dictate-community",
     "readme": "https://github.com/rorshopping/whisper-dictate-community#readme",
-    "license": "https://github.com/rorshopping/whisper-dictate-community/blob/master/LICENSE",
-    "third_party_notices": "https://github.com/rorshopping/whisper-dictate-community/blob/master/THIRD-PARTY-NOTICES.md"
+    "license": "https://github.com/rorshopping/whisper-dictate-community/blob/main/LICENSE",
+    "third_party_notices": "https://github.com/rorshopping/whisper-dictate-community/blob/main/THIRD-PARTY-NOTICES.md"
   },
   "artifacts": [
     {
@@ -27,10 +27,11 @@
       "platform_label": "Windows x64",
       "kind": "portable_zip",
       "label": "Portable ZIP",
-      "filename": null,
-      "url": null,
-      "sha256": null,
-      "size_bytes": null
+      "filename": "WhisperDictate-0.1.0-windows-x64-portable-unsigned.zip",
+      "url": "https://github.com/rorshopping/whisper-dictate-community/releases/download/community-v0.1.0/WhisperDictate-0.1.0-windows-x64-portable-unsigned.zip",
+      "sha256": "f06a9ecb40f0324fbb37d438929e5c3085711c87884bf050fe133fd794c14531",
+      "size_bytes": 366227489,
+      "signing": "unsigned-portable"
     },
     {
       "id": "windows-x64-installer",
@@ -41,7 +42,8 @@
       "filename": null,
       "url": null,
       "sha256": null,
-      "size_bytes": null
+      "size_bytes": null,
+      "signing": null
     },
     {
       "id": "macos-apple-silicon-portable-zip",
@@ -49,10 +51,11 @@
       "platform_label": "macOS Apple Silicon",
       "kind": "portable_zip",
       "label": "Portable ZIP",
-      "filename": null,
-      "url": null,
-      "sha256": null,
-      "size_bytes": null
+      "filename": "WhisperDictate-0.1.0-macos-arm64-notarized.zip",
+      "url": "https://github.com/rorshopping/whisper-dictate-community/releases/download/community-v0.1.0/WhisperDictate-0.1.0-macos-arm64-notarized.zip",
+      "sha256": "6dcfd2ca1a270cd893094a62fa09f9f49ad7f8ed2a693164b5f7322b873c87b2",
+      "size_bytes": 329337312,
+      "signing": "developer-id-notarized"
     },
     {
       "id": "macos-apple-silicon-installer",
@@ -63,7 +66,8 @@
       "filename": null,
       "url": null,
       "sha256": null,
-      "size_bytes": null
+      "size_bytes": null,
+      "signing": null
     }
   ],
   "models": [

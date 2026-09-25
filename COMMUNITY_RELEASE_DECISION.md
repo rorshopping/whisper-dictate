@@ -53,6 +53,14 @@ The current paid site and the alternate free site must not both claim to be the
 latest product. Before launch, select one canonical website and either archive,
 redirect, or clearly mark the other channel as historical/preview.
 
+**Outcome (2026-09-25):** the community site is canonical and published. The
+older Becker Hub site was deliberately **kept online** rather than archived or
+redirected; it now carries a banner naming the community edition as the
+canonical free channel and linking the community site and the preview release
+(commit `f790a91` in `rorshopping/becker-codehub`, deployed to
+`https://becker-hub-web.vercel.app/whisper-dictate`). No content was removed
+from the older channel.
+
 ## Execution update — 2026-09-25
 
 The first public channel is now a **prerelease**, not a stable signed release:
@@ -61,7 +69,36 @@ The first public channel is now a **prerelease**, not a stable signed release:
 - Vercel website/manifest: `https://whisper-dictate-community-web.vercel.app`
 - macOS Apple Silicon portable ZIP: Developer ID signed, notarized, stapled, and Gatekeeper-assessed.
 - Windows x64 portable ZIP: explicitly labeled unsigned preview; Authenticode signing remains a future gate.
-- Installers, a project-controlled model mirror, final legal/SBOM review, and clean-machine acceptance remain future work.
+- Installers, a project-controlled model mirror, and clean-machine acceptance with a real recording remain future work.
+
+Follow-up decisions recorded 2026-09-25:
+
+8. **Windows is unsigned by design, and the portable ZIP is the shipping
+   format.** No Authenticode certificate is available, so the Windows artifact
+   stays an explicitly unsigned portable ZIP
+   (`WhisperDictate-0.1.0-windows-x64-portable-unsigned.zip`) with a
+   `WhisperDictate-Portable.cmd` launcher. The earlier plain Windows ZIP is
+   retained for continuity; the site points at the portable package.
+
+9. **The Windows build is CPU-only, and the site says so.** The published
+   archive bundles a CPU-only PyTorch build and no CUDA runtime, so the release
+   notes, website, and third-party notices state this instead of implying GPU
+   acceleration. A site test fails if the wording regresses.
+
+10. **The older site stays online with a banner.** The legacy Becker Hub
+    channel is not deleted or redirected; it is marked as the older channel and
+    points visitors to the canonical community site and release.
+
+11. **The SBOM is generated from the artifact, not the build machine.**
+    `scripts/sbom_from_package.py` reads the `dist-info` metadata preserved in
+    the frozen payload; `sbom-*.cdx.json` is published next to the binaries and
+    `THIRD-PARTY-NOTICES.md` now carries the `rapidfuzz` MIT text that the first
+    version of the notices wrongly claimed was unnecessary.
+
+12. **A model mirror waits for a license decision.** NVIDIA Open Model License
+    and OpenMDW-1.1 may restrict redistribution, so no mirror bucket is
+    provisioned before that question is answered. First use resolves through the
+    pinned Hugging Face snapshot URLs.
 
 The prerelease wording is intentional: it does not represent the paid product,
 does not bundle model weights, and does not claim that the Windows artifact is

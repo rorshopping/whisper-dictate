@@ -425,3 +425,91 @@ preview, but not the remaining qualification items.
   final legal/SBOM review, and clean-machine microphone/model-load acceptance
   remain future work. Model weights are still acquired on first use and are not
   bundled in either artifact.
+
+## Portable package, license/SBOM evidence, and legacy channel update - 2026-09-25
+
+This section records the work completed after the `community-v0.1.0` preview
+publication. It does not change the preview status of the release.
+
+### Published Windows portable package
+
+- `WhisperDictate-0.1.0-windows-x64-portable-unsigned.zip`,
+  366,227,489 bytes, SHA-256
+  `f06a9ecb40f0324fbb37d438929e5c3085711c87884bf050fe133fd794c14531`, is
+  published on the same prerelease. It is the verified Windows payload plus
+  `WhisperDictate-Portable.cmd` and `PORTABLE.txt`; the launcher passes
+  `--portable` so configuration, logs, history and the model cache stay beside
+  the executable. The original `WhisperDictate-0.1.0-windows-x64-unsigned.zip`
+  was retained rather than replaced.
+- `release-manifest.json` and `SHA256SUMS` were regenerated for the three
+  published binaries and re-uploaded; the website manifest and
+  `scripts/check_release_sync.py` confirm the site advertises exactly what the
+  release carries.
+- Public source gained `packaging/windows/PORTABLE.txt`,
+  `packaging/windows/WhisperDictate-Portable.cmd`, packaging documentation, and
+  regression tests (`0f0870e`).
+
+### Clean-extract acceptance of the portable package
+
+The published ZIP was extracted into an empty directory and started with
+`WhisperDictate.exe --portable --doctor --console` while `APPDATA`/`LOCALAPPDATA`
+were pointed at an empty directory:
+
+- 17 of 19 doctor checks passed. The only failures were the two model caches,
+  which is expected on a machine that has never downloaded the ~2.4 GB
+  checkpoints.
+- `PortableData/config.json` was created next to the executable, the config
+  parsed (27 top-level keys), microphone access enumerated 10 input devices,
+  hotkey conflicts: none, clipboard access OK, and the data folder was writable.
+- No application data was written to the pristine `APPDATA`; the only entry was
+  the CUDA/NVML driver's own `NVIDIA` cache folder.
+- The frozen app reports `torch 2.14.0+cpu` with CUDA unavailable. The Windows
+  preview is therefore a **CPU-only** build; the website and release notes now
+  state this instead of implying NVIDIA GPU acceleration, and a site test fails
+  if that wording regresses.
+
+### License notices and SBOM
+
+- `THIRD-PARTY-NOTICES.md` no longer claims `rapidfuzz` is absent. It is
+  declared in `requirements-release.txt`, ships in both archives as compiled
+  modules, and its MIT text (Copyright 2020-present Max Bachmann, 2011 Adam
+  Cohen) is now reproduced in full. Entries are labelled *env* (build
+  environment) or *artifact* (verified in the published archive), and a test
+  fails the build if a declared release dependency has no notice.
+- New `scripts/sbom_from_package.py` generates a CycloneDX 1.5 inventory from
+  the artifact itself using only the standard library, reading the
+  `*.dist-info/METADATA` that PyInstaller preserved. It reports packages
+  bundled without metadata as explicitly unresolved rather than dropping them.
+- `sbom-windows-x64.cdx.json` and `sbom-macos-arm64.cdx.json` are attached to
+  the prerelease. Each resolves 21 components with the license expression the
+  wheel declared and embeds the SHA-256 of the archive it describes. Both report
+  `ctranslate2` and `rapidfuzz` as unresolved. Neither archive contains a CUDA
+  runtime, which is now recorded in the notices as build-environment-only
+  provenance.
+- The release workflow now builds the portable Windows archive (copying the
+  launcher and instructions, and asserting both are present in the ZIP) and
+  generates an SBOM per platform.
+
+### Legacy channel kept online
+
+The older Becker Hub site was **not** deleted or redirected. `becker-hub-web`
+(`/whisper-dictate`) now carries a banner naming the community edition as the
+canonical free channel and linking both the community site and the preview
+release. The change is commit `f790a91` in `rorshopping/becker-codehub`; the
+Vercel production build succeeded and the live page shows the banner.
+
+### Still outstanding
+
+- Windows Authenticode signing (no certificate; Windows stays explicitly
+  unsigned) and signed installers.
+- A project-controlled model mirror. The model licenses (NVIDIA Open Model
+  License, OpenMDW-1.1) must be reviewed for redistribution rights before any
+  bucket is provisioned; first use still resolves through the pinned Hugging
+  Face URLs.
+- Full clean-machine acceptance with a real microphone recording and a
+  completed first-use model download for both language profiles, plus the
+  equivalent macOS run.
+- Legal review of the notices by someone accountable for it; the SBOM covers
+  package inventory, not legal opinion.
+- Vercel GitHub App synchronization for the community site (production is
+  deployed with the authenticated CLI).
