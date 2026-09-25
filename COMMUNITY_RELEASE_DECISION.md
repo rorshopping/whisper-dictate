@@ -95,10 +95,27 @@ Follow-up decisions recorded 2026-09-25:
     `THIRD-PARTY-NOTICES.md` now carries the `rapidfuzz` MIT text that the first
     version of the notices wrongly claimed was unnecessary.
 
-12. **A model mirror waits for a license decision.** NVIDIA Open Model License
-    and OpenMDW-1.1 may restrict redistribution, so no mirror bucket is
-    provisioned before that question is answered. First use resolves through the
-    pinned Hugging Face snapshot URLs.
+12. **A model mirror is provisioned, with the license question flagged.**
+    Release `model-mirror-v1` in the public source repository publishes both
+    pinned checkpoints as 15 assets (4.68 GiB), each weight file split into
+    1.5 GB/1.05 GB parts because release assets cannot hold 2.4 GB files. A
+    `whisper-dictate.model-mirror.v1` manifest describes them, and the resolver
+    verifies every part, the assembled file, and the pinned revision before
+    publishing anything to the cache. Hugging Face remains the last resort in
+    `source_order`, so the mirror is a fallback, not a replacement. The mirror
+    publication records the NVIDIA Open Model License and OpenMDW-1.1 notices;
+    a human should still confirm the OpenMDW redistribution terms before a
+    stable release, and a different model revision must be a new mirror tag.
+
+13. **`hf-mirror.com` is explicitly rejected as a fallback.** It 308-redirects
+    every request to huggingface.co regardless of user agent, so it cannot
+    survive a blocked Hugging Face. The blocked-host test caught this; the
+    documentation would not have.
+
+14. **macOS ships a notarized disk image as well as a ZIP.** The image is gated
+    by a macOS-produced verification record rather than by a filename, because
+    the release guard cannot open a disk image off macOS. The record travels
+    with the release.
 
 The prerelease wording is intentional: it does not represent the paid product,
 does not bundle model weights, and does not claim that the Windows artifact is

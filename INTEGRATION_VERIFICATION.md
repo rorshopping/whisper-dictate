@@ -639,3 +639,25 @@ pinned manifests without downloading the weights.
 `hf-mirror.com` is explicitly *not* used: it 308-redirects every request to
 huggingface.co, so it is a proxy rather than a fallback. That was found by the
 blocked-Hugging-Face test, not by reading the vendor's documentation.
+
+The new startup prefetch was then exercised the same way, through the shipped
+`main.prefetch_profile_models()` entry point rather than the resolver directly:
+
+```
+[dictate] [EN] Model ready at ...\snapshots\ebe59e5a817142986528bbbee5dba8db7b38ed50 (mirror)
+[dictate] [DE] Model ready at ...\snapshots\ea30d66debe3740a08b573244286791d423d6b3e (mirror)
+EN: 7 files, 2,472,816,288 bytes
+DE: 7 files, 2,552,820,159 bytes
+PREFETCH TEST PASSED: both profiles were fetched and verified with Hugging Face blocked.
+```
+
+Both languages now download on startup, from the mirror, with huggingface.co
+unreachable.
+
+### CI caught a test bug worth recording
+
+The first three pushes after the mirror work failed CI, because the new test
+modules resolved the repository from a hardcoded local checkout path and CI has
+no such directory. The failure was real and the fix (derive the root from
+`__file__`, as the rest of the suite does) is what CI exists for. Public source
+head `c7da16e` is green: https://github.com/rorshopping/whisper-dictate-community/actions/runs/36197494511
