@@ -69,3 +69,6 @@ transcription-history.jsonl
 website/.env.local
 config.local.json
 .playwright-cli/
+
+# stray model caches from ad-hoc test runs
+--doctor/
