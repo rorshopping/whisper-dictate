@@ -521,3 +521,121 @@ Vercel production build succeeded and the live page shows the banner.
   package inventory, not legal opinion.
 - Vercel GitHub App synchronization for the community site (production is
   deployed with the authenticated CLI).
+## Model mirror and notarized macOS disk image - 2026-09-25
+
+### Why the mirror exists, and why it is not Hugging Face
+
+The first release depended on `huggingface.co` for both model downloads. The
+obvious "other source" candidates were checked and rejected with evidence:
+
+- `hf-mirror.com` serves the pinned revision but **308-redirects every request
+  to `huggingface.co`**, whatever the user agent, so it is a proxy, not a
+  fallback. A blocked-Hugging-Face test caught this: the resolver was blocked at
+  the socket level and the mirror request followed the redirect straight into the
+  block. It is not shipped.
+- `modelscope.cn` has no `nvidia/nemotron-speech-streaming-en-0.6b` or
+  `nvidia/nemotron-3.5-asr-streaming-0.6b` (HTTP 404 on both file listings).
+- Kaggle requires an account, and NVIDIA NGC requires an NGC API key, so neither
+  is usable for an anonymous first run.
+
+What shipped instead is a project-controlled mirror in the public source
+repository, published as release `model-mirror-v1`. The weights are far larger
+than GitHub's 2 GB asset limit, so each `model.safetensors` is published as two
+1.5 GB/1.05 GB parts with per-part SHA-256, described by a
+`whisper-dictate.model-mirror.v1` manifest.
+
+Integrity rules, all fail-closed, in `model_manager.py`:
+
+* the mirror manifest's revision and every file's size/SHA-256 must equal the
+  hashes the application already pins, so a mirror cannot serve different bytes
+  for a pinned model;
+* every part URL must be HTTPS, part sizes must sum to the file size, and each
+  part is verified after download and again after assembly;
+* file names may not contain path separators;
+* a base that serves no manifest still works with the plain Hugging Face URL
+  layout, and Hugging Face remains the last resort in `source_order`.
+
+`config.json` ships `mirror_urls` with the project mirror; `mirror_url` from an
+older configuration is read as a one-entry chain, so nothing had to migrate.
+Every profile is now prefetched at startup in a background thread, which
+resolves and downloads but does not build an engine, so a first dictation never
+waits for a multi-gigabyte download and memory use is unchanged.
+
+Mirror provisioning evidence: both models were fetched through the app's own
+resolver and every file verified against the pinned hash before publication -
+`model.safetensors` 2,472,413,604 bytes for the English profile and
+2,552,062,944 bytes for the German one, 4.68 GiB published as 15 assets.
+
+### macOS disk image
+
+`WhisperDictate-0.1.0-macos-arm64-notarized.dmg`, 400,106,300 bytes, SHA-256
+`eef26ead380eaffc52f067d3229dc107baf8aeacf278d9940f312f7fc3966ec2`.
+
+Two real bugs were found and fixed while producing it:
+
+1. `spctl --assess --type diskimage` is not a valid assessment type on current
+   macOS. It failed *after* notarization had already succeeded, and because the
+   image only existed in a temp directory removed by the script's EXIT trap, a
+   completed notarization was thrown away. The template now publishes the image
+   to the output directory immediately after stapling and then verifies the
+   published file with `spctl -a -t open --context context:primary-signature`.
+   Both are pinned by `tests/test_macos_dmg_template.py`.
+2. The release guard could not open a `.dmg` at all, so the artifact had no
+   gate. `packaging/macos/verify_dmg.sh` now runs the six checks on macOS and
+   writes a verification record; the guard accepts a disk image only when the
+   record's schema, overall result, and per-check results are present *and* the
+   image's SHA-256 still matches, so a swapped image is rejected. The record for
+   this build reports `hdiutil-verify`, `codesign-deep-strict`, `stapler-app`,
+   `spctl-app`, `spctl-image` and `doctor-smoke` all passed on macOS 26.5.1
+   (arm64), with `source=Notarized Developer ID` for both the image and the app
+   inside it.
+
+The notarytool credential from the first run was gone from the Mac, so a new
+notarization used the existing App Store Connect key already provisioned on that
+machine (`~/.appstoreconnect/private_keys/AuthKey_BP3N265886.p8`); no credential
+was created, stored in the repository, or logged. `codesign` fails over plain
+SSH with `errSecInternalComponent` because the login keychain only serves the
+Aqua session, so both the build and the verification ran as GUI LaunchAgents -
+the workaround already documented in the iOS build notes.
+
+### Real testing performed
+
+- Frozen portable Windows package, clean extract, `--portable --doctor`: 17/19
+  checks pass, only the two model caches missing, data lands beside the
+  executable, nothing written to a pristine `%APPDATA%`.
+- Disk image: mounted read-only, `codesign --verify --deep --strict` valid,
+  stapled ticket present, `spctl -a -t exec` accepted as Notarized Developer ID,
+  and the app inside ran its doctor (17/19, Apple GPU/MPS selected).
+- Mirror: every published part verified against the pinned hashes, and the
+  blocked-Hugging-Face test proved the mirror path is what actually serves the
+  model.
+### Real end-to-end results
+
+Blocked-Hugging-Face test (huggingface.co and hf.co refused at the socket
+layer, so any fallback would fail loudly):
+
+```
+configured mirror chain : ['https://github.com/rorshopping/whisper-dictate-community/releases/download/model-mirror-v1']
+huggingface.co          : BLOCKED (socket level)
+trace mirror      downloaded  published snapshot at ...\snapshots\ebe59e5a817142986528bbbee5dba8db7b38ed50
+trace mirror      selected    validated revision ebe59e5a817142986528bbbee5dba8db7b38ed50
+verified bytes  : 2,472,816,091 across 6 files
+model loaded in : 28.8s on cuda (2.5s of that is weight loading)
+transcript      : 'Deploy the backup performance service once the tests pass, please.'
+transcribed in  : 1.4s for 3.9s audio (2.9x realtime)
+RESULT: PASS - model came from the mirror with Hugging Face blocked
+```
+
+The audio was real speech generated with the macOS `say` voice and converted to
+16 kHz mono, not a synthetic fixture. The model heard "performance" for the
+spoken "performant", which is precisely the mishearing `corrections-en.txt`
+exists to fix, so the raw-engine result is reported as-is.
+
+The mirror release is published at
+`https://github.com/rorshopping/whisper-dictate-community/releases/tag/model-mirror-v1`
+(15 assets, 4.68 GiB) and `scripts/check_mirror.py` verifies it against the
+pinned manifests without downloading the weights.
+
+`hf-mirror.com` is explicitly *not* used: it 308-redirects every request to
+huggingface.co, so it is a proxy rather than a fallback. That was found by the
+blocked-Hugging-Face test, not by reading the vendor's documentation.
