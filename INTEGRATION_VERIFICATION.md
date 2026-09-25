@@ -501,7 +501,15 @@ Vercel production build succeeded and the live page shows the banner.
 ### Still outstanding
 
 - Windows Authenticode signing (no certificate; Windows stays explicitly
-  unsigned) and signed installers.
+  unsigned) and signed installers. Inno Setup is not installed on this machine,
+  so the Windows installer template cannot even be compiled here yet, and an
+  unsigned installer would be a worse experience than the portable ZIP.
+- A macOS disk image. `packaging/macos/build_signed_dmg.sh FORMAT=dmg` is
+  complete and tested for syntax, but the Apple notarytool credential used for
+  the 0.1.0 notarization is no longer present on the Mac (no keychain profile
+  and no `AuthKey*.p8`), and a new App Store Connect API key must not be minted
+  without the owner asking for it. The app itself is still signed, notarized,
+  and stapled, so a DMG can be produced as soon as a credential is provided.
 - A project-controlled model mirror. The model licenses (NVIDIA Open Model
   License, OpenMDW-1.1) must be reviewed for redistribution rights before any
   bucket is provisioned; first use still resolves through the pinned Hugging
