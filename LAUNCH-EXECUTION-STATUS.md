@@ -39,8 +39,8 @@ substantially executed. Everything below was re-verified live on this date.
    Still open: light maker-comment engagement on the PH page.
 2. **Show HN + Reddit r/SideProject** — DONE 2026-09-30. Reddit posted live:
    https://www.reddit.com/r/SideProject/comments/1wuaysg/ (u/englishmaster33).
-   Show HN drafted at `product-launch/show-hn.md` — awaiting orchestrator
-   review before posting to news.ycombinator.com.
+   Show HN drafted at `product-launch/show-hn.md` — posted 2026-09-30
+   (evening), see section below.
 3. **v1.0.4**: DONE 2026-09-30 — tag `v1.0.4` on `4d0bb22` (HF resolve URLs
    `5801151`, frozen doctor mode `ab37fbf`, plus the CI-caught community-export
    path-canonicalisation fix). CI produces the draft release; sign/notarize +
@@ -50,3 +50,20 @@ substantially executed. Everything below was re-verified live on this date.
    `STRIPE_WEBHOOK_SECRET` (fast-path only; activation works without it).
 5. Optional: `SMTP_USER`/`SMTP_PASS` secrets for the "Message customers"
    workflow, or `scripts/message_outlook.ps1` (STRIPE.md).
+
+## Executed 2026-09-30 (evening session) — Show HN + Product Hunt maker comment
+
+| Step | Status | Evidence |
+|---|---|---|
+| Show HN submitted | DONE | https://news.ycombinator.com/item?id=49912691 — title exactly per draft ("Show HN: Whisper Dictate – Offline push-to-talk dictation for Windows and macOS"), URL = https://whisperdictate.vercel.app (not the repo), posted as `richard_baecker` at 18:41 UTC / 2:41 PM ET |
+| HN first comment | DONE | item 49912702, full draft text (repo + community-edition links auto-linked by HN). Re-edited twice within the edit window to fix HN formatting (single newlines collapse; 2-space indents render as code blocks) — final render: 10 paragraphs, 0 code blocks |
+| PH maker comment | DONE | Posted on https://www.producthunt.com/products/whisper-dictate — 6 sentences in Richard's voice (privacy rationale, on-device Nemotron EN+DE, offline Wispr Flow-style auto-edits, v1.0.4 shipped today, questions invited). PH auto-pins it with the Maker badge. No votes touched |
+| Evidence screenshots | LOCAL ONLY | `product-launch/evidence/hn-post-2026-09-30.png`, `product-launch/evidence/ph-comment-2026-09-30.png` (not committed — screenshots are local runtime artifacts) |
+
+**Blocker (HN):** the first comment was auto-flagged (`[flagged]`) within a
+minute of posting — likely the anti-spam heuristic reacting to a link post +
+immediate comment with two bare GitHub URLs from a low-karma account. Nothing
+self-serviceable: **Richard should email hn@ycombinator.com** from his HN
+account email, mention item 49912702 on 49912691, and ask for a review/unflag.
+The submission itself is NOT flagged and was at 2 points (organic) ~8 minutes
+after posting. Etiquette kept: no self-upvotes, no further self-comments.
