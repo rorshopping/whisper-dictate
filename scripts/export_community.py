@@ -471,9 +471,28 @@ def _reject_symlink_components(path: Path, *, label: str) -> None:
             raise ExportError(f"{label} traverses a symlink: {current}")
 
 
+def _canonicalise(path: Path, *, label: str) -> Path:
+    """Canonicalise a caller path without following a symlinked final component.
+
+    Ancestors of a caller path legitimately contain platform symlinks
+    (macOS ``/var`` -> ``/private/var``) and Windows 8.3 short names, so the
+    real path is resolved first and the component check runs on that.  A
+    symlink AT the final component is still refused.
+    """
+
+    if path.name and path.is_symlink():
+        raise ExportError(f"{label} is a symlink: {path}")
+    try:
+        resolved = path.resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
+        raise ExportError(f"cannot resolve {label} {path}: {exc}") from exc
+    _reject_symlink_components(resolved, label=label)
+    return resolved
+
+
 def _normalise_source_root(source_root: Path | str | None) -> Path:
     candidate = _absolute_path(ROOT if source_root is None else source_root)
-    _reject_symlink_components(candidate, label="source root")
+    candidate = _canonicalise(candidate, label="source root")
     if not candidate.exists():
         raise ExportError(f"source root does not exist: {candidate}")
     if candidate.is_symlink() or not candidate.is_dir():
@@ -489,7 +508,7 @@ def _normalise_output(output_dir: Path | str, source_root: Path) -> Path:
     # The output must not be a link, and an existing parent link must not be
     # followed.  This also prevents a caller from turning a link into a write
     # primitive for an unrelated directory.
-    _reject_symlink_components(output, label="output directory")
+    output = _canonicalise(output, label="output directory")
     try:
         output_real = output.resolve(strict=False)
     except (OSError, RuntimeError) as exc:
