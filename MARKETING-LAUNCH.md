@@ -30,3 +30,15 @@ before manual posts).
   Scheduled!" confirmed, Required checklist 100%.
 - Launch day: light maker engagement in comments; product link is the
   whisperdictate.vercel.app page (PH fetches its own copy of images).
+
+## 2026-09-30 — Reddit r/SideProject launch (@englishmaster33)
+
+- **Post**: https://www.reddit.com/r/SideProject/comments/1wuaysg/
+  "I built an offline dictation app that runs entirely on your own GPU
+  (Windows/macOS)" — text post, site + GitHub links in body, free community
+  edition + Pro €40/yr mentioned. Posted via playwright-cli on the real
+  Chrome session (~19:25 CEST); screenshot evidence in
+  `%TEMP%/reddit-posted.png`.
+- Show HN drafted (product-launch/show-hn.md), NOT posted — orchestrator
+  review first. PH launch verified live (1 point, 0 comments) — maker
+  engagement still open.

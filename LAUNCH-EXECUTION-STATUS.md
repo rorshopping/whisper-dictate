@@ -14,7 +14,7 @@ substantially executed. Everything below was re-verified live on this date.
 | Activation API | DONE | `/api/activate` `/api/validate` `/api/trial` deployed — GET returns 405 (POST-only); `POST /api/trial {}` returns proper JSON validation error |
 | Stripe payment link | DONE | https://buy.stripe.com/9B614g0wY5i52nKg0C9AA03 → 200 (live mode, €40/yr — see STRIPE.md) |
 | X launch post | DONE | https://x.com/RichardBcker1/status/2088034929162465574 + link reply (posted 2026-09-20, see MARKETING-LAUNCH.md) |
-| Product Hunt | SCHEDULED 2026-09-21 12:01 PT | submission confirmed scheduled (MARKETING-LAUNCH.md) — **outcome unverified** |
+| Product Hunt | **LIVE (verified 2026-09-30)** | https://www.producthunt.com/products/whisper-dictate launched 2026-09-21 ("Launched 9d ago") — 1 point (maker upvote), 1 follower, 0 comments, not featured. Maker-comment engagement still outstanding |
 | Community edition preview | DONE | `rorshopping/whisper-dictate-community` releases `community-v0.1.0` (pre-release) + `model-mirror-v1`; site https://whisper-dictate-community-web.vercel.app → 200 |
 | Local commits pushed | DONE | 38 commits pushed to `origin/master` 2026-09-30 (HEAD `cc31329`). First push failed: two ~2.4 GB Nemotron `model.safetensors` blobs (GitHub hard limit 100 MB) had been committed under a stray `--doctor/` cache dir in `30774ae`/`e63c1ec`. Fixed by rewriting only the unpushed range with `git filter-repo --invert-paths --path="--doctor" --refs 46813e3..HEAD` (installed via pip); final tree unchanged, HEAD now `cc31329` |
 
@@ -35,15 +35,16 @@ substantially executed. Everything below was re-verified live on this date.
 
 ## Remaining steps to first customer
 
-1. **Verify the Product Hunt launch went live** (scheduled 2026-09-21) and do
-   maker-comment engagement if not already done. Requires browser (human or
-   poster step).
-2. **Write + post Show HN and Reddit r/SideProject.** No draft text exists in
-   the repo — drafts must be written first (playbooks:
-   social-marketing skill). Posting is the orchestrator's later step.
-3. **Optional v1.0.4**: tag `v1.0.4` on master to pick up the two post-v1.0.3
-   fixes (HF resolve URLs, frozen doctor mode); CI produces the draft release,
-   then sign/notarize + attach per NOTES_release-hygiene.md.
+1. **Verify the Product Hunt launch went live** — DONE 2026-09-30, see table.
+   Still open: light maker-comment engagement on the PH page.
+2. **Show HN + Reddit r/SideProject** — DONE 2026-09-30. Reddit posted live:
+   https://www.reddit.com/r/SideProject/comments/1wuaysg/ (u/englishmaster33).
+   Show HN drafted at `product-launch/show-hn.md` — awaiting orchestrator
+   review before posting to news.ycombinator.com.
+3. **v1.0.4**: DONE 2026-09-30 — tag `v1.0.4` on `4d0bb22` (HF resolve URLs
+   `5801151`, frozen doctor mode `ab37fbf`, plus the CI-caught community-export
+   path-canonicalisation fix). CI produces the draft release; sign/notarize +
+   attach per NOTES_release-hygiene.md remains a manual operator gate.
 4. **Monitor first sale**: `stripe checkout_sessions list --live --limit 10`
    (see STRIPE.md). Optional: add the live-mode webhook secret to Vercel env
    `STRIPE_WEBHOOK_SECRET` (fast-path only; activation works without it).
