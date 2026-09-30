@@ -16,7 +16,7 @@ substantially executed. Everything below was re-verified live on this date.
 | X launch post | DONE | https://x.com/RichardBcker1/status/2088034929162465574 + link reply (posted 2026-09-20, see MARKETING-LAUNCH.md) |
 | Product Hunt | SCHEDULED 2026-09-21 12:01 PT | submission confirmed scheduled (MARKETING-LAUNCH.md) — **outcome unverified** |
 | Community edition preview | DONE | `rorshopping/whisper-dictate-community` releases `community-v0.1.0` (pre-release) + `model-mirror-v1`; site https://whisper-dictate-community-web.vercel.app → 200 |
-| Local commits pushed | DONE | 37 commits pushed to `origin/master` 2026-09-30 (HEAD `e63c1ec`) |
+| Local commits pushed | DONE | 38 commits pushed to `origin/master` 2026-09-30 (HEAD `cc31329`). First push failed: two ~2.4 GB Nemotron `model.safetensors` blobs (GitHub hard limit 100 MB) had been committed under a stray `--doctor/` cache dir in `30774ae`/`e63c1ec`. Fixed by rewriting only the unpushed range with `git filter-repo --invert-paths --path="--doctor" --refs 46813e3..HEAD` (installed via pip); final tree unchanged, HEAD now `cc31329` |
 
 ## Notes
 
