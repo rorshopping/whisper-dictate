@@ -3,8 +3,42 @@
 
 const crypto = require("crypto");
 const {
-  getStore, putStore, normalizeEmail, validEmail,
+  getStore, putStore, normalizeEmail, validEmail, sameProduct,
+  parsePriceMap, DEFAULT_PRODUCT,
 } = require("./_lib");
+
+const KEY_PREFIXES = { whisperdictate: "wd_", shipside: "sd_" };
+
+function keyPrefix(product) {
+  return KEY_PREFIXES[product || DEFAULT_PRODUCT] || "sd_";
+}
+
+// Which product a checkout bought: payment-link metadata (Stripe copies it
+// onto the session) first, then the STRIPE_PRICE_MAP. Unmapped -> whisperdictate.
+function productOf(obj) {
+  if (obj.metadata && obj.metadata.product) {
+    return String(obj.metadata.product).slice(0, 32);
+  }
+  const map = parsePriceMap();
+  for (const item of (obj.lines && obj.lines.data) || []) {
+    const m = map[item.price && item.price.id];
+    if (m && m.product) return m.product;
+  }
+  return DEFAULT_PRODUCT;
+}
+
+// How far one paid period extends a license. Payment-link metadata
+// plan=monthly wins; then the price map; default yearly (366) - which is also
+// the correct behavior for the legacy whisperdictate payment link.
+function periodDays(obj) {
+  if (obj.metadata && obj.metadata.plan === "monthly") return 31;
+  const map = parsePriceMap();
+  for (const item of (obj.lines && obj.lines.data) || []) {
+    const m = map[item.price && item.price.id];
+    if (m && m.interval === "month") return 31;
+  }
+  return 366;
+}
 
 module.exports.config = { api: { bodyParser: false } };
 
@@ -70,15 +104,20 @@ module.exports = async (req, res) => {
         res.statusCode = 200;
         return res.end("no email on session; skipped");
       }
+      const product = productOf(obj);
+      const days = periodDays(obj);
       data.licenses = data.licenses || [];
-      let lic = data.licenses.find((l) => l.email === email);
+      let lic = data.licenses.find(
+        (l) => l.email === email && sameProduct(l, product)
+      );
       const now = new Date();
       if (!lic) {
         lic = {
           email,
-          key: "wd_" + crypto.randomBytes(16).toString("hex"),
+          key: keyPrefix(product) + crypto.randomBytes(16).toString("hex"),
+          product,
           status: "active",
-          valid_until: new Date(now.getTime() + 366 * 86400e3).toISOString(),
+          valid_until: new Date(now.getTime() + days * 86400e3).toISOString(),
           devices: [],
           created: now.toISOString(),
           source: "stripe",
@@ -91,29 +130,36 @@ module.exports = async (req, res) => {
           Date.now(),
           new Date(lic.valid_until).getTime()
         );
-        lic.valid_until = new Date(base + 366 * 86400e3).toISOString();
+        lic.valid_until = new Date(base + days * 86400e3).toISOString();
       }
       if (obj.subscription) lic.stripe_ids.subscription = obj.subscription;
       if (obj.customer) lic.stripe_ids.customer = obj.customer;
       if (obj.id) lic.stripe_ids.checkout_session = obj.id;
-      await putStore(data, `stripe ${type}: ${email}`);
+      await putStore(data, `stripe ${type}: ${email} (${product})`);
     } else if (type === "invoice.paid" && obj.subscription) {
-      const email = normalizeEmail(
-        (obj.customer_email || "")
-      );
+      const email = normalizeEmail(obj.customer_email || "");
+      const product = productOf(obj);
+      // Subscription invoices carry the exact paid period: use it.
+      const periodEnd =
+        obj.lines && obj.lines.data && obj.lines.data[0] &&
+        obj.lines.data[0].period && obj.lines.data[0].period.end;
       const lic = data.licenses.find(
         (l) =>
-          (email && l.email === email) ||
-          l.stripe_ids.subscription === obj.subscription
+          l.stripe_ids.subscription === obj.subscription ||
+          (email && l.email === email && sameProduct(l, product))
       );
       if (lic) {
-        const base = Math.max(
-          Date.now(),
-          new Date(lic.valid_until).getTime()
-        );
-        lic.valid_until = new Date(base + 366 * 86400e3).toISOString();
+        if (periodEnd) {
+          lic.valid_until = new Date(periodEnd * 1000).toISOString();
+        } else {
+          const base = Math.max(
+            Date.now(),
+            new Date(lic.valid_until).getTime()
+          );
+          lic.valid_until = new Date(base + periodDays(obj) * 86400e3).toISOString();
+        }
         lic.status = "active";
-        await putStore(data, `stripe renewal: ${lic.email}`);
+        await putStore(data, `stripe renewal: ${lic.email} (${lic.product || DEFAULT_PRODUCT})`);
       }
     } else if (type === "customer.subscription.deleted") {
       const lic = data.licenses.find(

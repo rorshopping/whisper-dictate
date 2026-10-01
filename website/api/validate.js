@@ -3,7 +3,7 @@
 // activation), 403 when revoked, 401 when expired/invalid.
 
 const {
-  getStore, signToken, verifyToken, licenseActive, json,
+  getStore, signToken, verifyToken, licenseActive, sameProduct, json,
 } = require("./_lib");
 
 module.exports = async (req, res) => {
@@ -14,7 +14,9 @@ module.exports = async (req, res) => {
   try {
     const data = await getStore(true);
     if (payload.trial) {
-      const trial = (data.trials || []).find((t) => t.email === payload.email);
+      const trial = (data.trials || []).find(
+        (t) => t.email === payload.email && sameProduct(t, payload.product)
+      );
       if (!trial) return json(res, 403, { error: "trial revoked" });
       return json(res, 200, {
         token: signToken(payload),
@@ -23,13 +25,20 @@ module.exports = async (req, res) => {
         exp: payload.exp,
       });
     }
-    const lic = (data.licenses || []).find((l) => l.email === payload.email);
+    const lic = (data.licenses || []).find(
+      (l) => l.email === payload.email && sameProduct(l, payload.product)
+    );
     if (!licenseActive(lic)) {
       return json(res, 403, { error: "license inactive or expired" });
     }
     const exp = Math.floor(new Date(lic.valid_until).getTime() / 1000);
     return json(res, 200, {
-      token: signToken({ email: payload.email, device: payload.device, exp }),
+      token: signToken({
+        email: payload.email,
+        device: payload.device,
+        exp,
+        product: payload.product,
+      }),
       email: payload.email,
       exp,
     });

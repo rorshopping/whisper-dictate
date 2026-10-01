@@ -105,13 +105,31 @@ function licenseActive(lic) {
   );
 }
 
-function findActiveLicense(data, { email, key }) {
+// Multi-product support (2026-10): rows/tokens without a `product` field
+// belong to whisperdictate - that keeps every pre-existing license valid.
+const DEFAULT_PRODUCT = "whisperdictate";
+
+function sameProduct(row, product) {
+  return (row.product || DEFAULT_PRODUCT) === (product || DEFAULT_PRODUCT);
+}
+
+function findActiveLicense(data, { email, key, product }) {
   return (data.licenses || []).find(
     (lic) =>
       licenseActive(lic) &&
+      sameProduct(lic, product) &&
       ((email && lic.email === String(email).toLowerCase()) ||
         (key && lic.key === key))
   );
+}
+
+// STRIPE_PRICE_MAP: {"<price_id>": {"product": "shipside", "interval": "month"}}
+function parsePriceMap() {
+  try {
+    return JSON.parse(process.env.STRIPE_PRICE_MAP || "{}");
+  } catch {
+    return {};
+  }
 }
 
 function iso(daysFromNow) {
@@ -137,11 +155,14 @@ module.exports = {
   BRANCH,
   MAX_DEVICES,
   TRIAL_DAYS,
+  DEFAULT_PRODUCT,
   getStore,
   putStore,
   signToken,
   verifyToken,
   licenseActive,
+  sameProduct,
+  parsePriceMap,
   findActiveLicense,
   iso,
   json,
