@@ -11,7 +11,8 @@ exists and how the pieces fit together.
 | Account | `acct_1U30Ms4x3RJZCHSg` | Becker-Codehub |
 | Product | `prod_VIPGVsatQvQof4` | "Whisper Dictate Pro (1 year)", tax code `txcd_10000000` (Managed Payments requirement) |
 | Price (current) | `price_1UHpFH4x3RJZCHSg8lV3JBTH` | **EUR 40.00, recurring yearly** |
-| Payment link (current) | `plink_1UHpFO4x3RJZCHSgsZ5lVUKu` | https://buy.stripe.com/9B614g0wY5i52nKg0C9AA03 → redirects to /thanks |
+| Payment link (current) | `plink_1UHpFO4x3RJZCHSgsZ5lVUKu` | https://buy.stripe.com/9B614g0wY5i52nKg0C9AA03 → redirects to /thanks; `allow_promotion_codes=true` (2026-10-02) |
+| Coupon + promo code (2026-10-02) | `FOUNDING40` / `promo_1ULsha4x3RJZCHSg6u4oe2ln` | 40 % off first year (€24), duration=once, max 50 redemptions, expires 2026-12-01 |
 | ~~Price €20~~ | `price_1UHoSg4x3RJZCHSgnDjIsycR` | archived (initial pricing) |
 | ~~Payment link €20~~ | `plink_1UHoWv4x3RJZCHSg6Zse0QnP` | archived |
 | Webhook (test) | `we_1UHpLj4x3RJZCHSguyWafdJy` | → /api/stripe-webhook, secret in Vercel env |
@@ -55,9 +56,14 @@ access), `LICENSE_HMAC_SECRET` (token signing), `STRIPE_SECRET_KEY`
 
 ```bash
 stripe prices list --live --product prod_VIPGVsatQvQof4
-stripe checkout_sessions list --live --limit 10   # who paid
+stripe checkout sessions list --live --limit 10   # who paid (space form; underscore form errors)
+stripe payment_intents list --live --limit 10     # completed charges only
 stripe payment_links update plink_1UHpFO4x3RJZCHSgsZ5lVUKu --live -d "active=false"  # kill checkout
 ```
+
+Gotcha (2026-10-02): `promotion_codes create` now takes
+`-d "promotion[type]=coupon" -d "promotion[coupon]=<id>"` — the flat
+`-d coupon=…` param 400s with `parameter_unknown`.
 
 Refunds: Dashboard → Payments → refund (14-day guarantee is in
 website/terms.html).

@@ -67,3 +67,13 @@ self-serviceable: **Richard should email hn@ycombinator.com** from his HN
 account email, mention item 49912702 on 49912691, and ask for a review/unflag.
 The submission itself is NOT flagged and was at 2 points (organic) ~8 minutes
 after posting. Etiquette kept: no self-upvotes, no further self-comments.
+
+## Executed 2026-10-02 (autonomous conversion pass)
+
+| Step | Status | Evidence |
+|---|---|---|
+| Founding offer live | DONE | Stripe live coupon `FOUNDING40` (40 % off first year → €24, duration=once, max 50, expires 2026-12-01), promo code `promo_1ULsha4x3RJZCHSg6u4oe2ln`, payment link `allow_promotion_codes=true`; link resolves 200 |
+| Site conversion pass | DONE | Hero CTA is now Download-first ("Download free — 14-day trial, no card"), Buy secondary; duplicated "money-back guarantee" fineprint fixed; founding offer surfaced in hero fineprint + Pro pricing card; deployed to prod (8 s) and verified live on https://whisperdictate.vercel.app |
+| Why | — | Stripe live account: 4 abandoned checkouts (2 on 2026-10-01) with **0 completed payments ever** — conversion, not traffic, is the binding constraint. Abandonment happens at the payment step, so the fix is offer + trust framing, not the checkout itself |
+| Not done (operator gates kept) | — | v1.0.4 signing/notarization + asset attach (release-hygiene runbook: operator credential gates), HN unflag email, Product Hunt maker engagement |
+| Tooling fix | DONE | `stripe-live-flip` skill updated: `promotion_codes create` now needs `promotion[type]=coupon` + `promotion[coupon]=<id>` (flat `coupon=` 400s `parameter_unknown`); `checkout_sessions` is `checkout sessions` in this CLI |
