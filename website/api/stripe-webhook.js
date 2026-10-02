@@ -27,10 +27,14 @@ function productOf(obj) {
   return DEFAULT_PRODUCT;
 }
 
-// How far one paid period extends a license. Payment-link metadata
-// plan=monthly wins; then the price map; default yearly (366) - which is also
-// the correct behavior for the legacy whisperdictate payment link.
+// How far one paid period extends a license. Payment-link metadata decides:
+// plan=lifetime -> one-time purchase, perpetual (~100y). plan=monthly -> 31d.
+// Fallback: the STRIPE_PRICE_MAP interval; default yearly (366) - which is
+// also the correct behavior for the legacy whisperdictate payment link.
+const LIFETIME_DAYS = 36500;
+
 function periodDays(obj) {
+  if (obj.metadata && obj.metadata.plan === "lifetime") return LIFETIME_DAYS;
   if (obj.metadata && obj.metadata.plan === "monthly") return 31;
   const map = parsePriceMap();
   for (const item of (obj.lines && obj.lines.data) || []) {

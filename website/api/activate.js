@@ -37,19 +37,34 @@ function productOfSession(session) {
   return DEFAULT_PRODUCT;
 }
 
-// Latest completed Checkout session for this email that started a
-// subscription FOR THE REQUESTED PRODUCT; returns the session or null.
-async function findPaidSubscription(email, product) {
+// Latest completed Checkout session for this email that PAID for the
+// requested product: a subscription start, or a one-time purchase whose
+// payment-link metadata says plan=lifetime (perpetual license). Returns
+// { session, validUntilEpoch } or null.
+const LIFETIME_DAYS = 36500; // ~100 years: one-time purchases never expire
+
+async function findPaidPurchase(email, product) {
   const sessions = await stripeGet(
     `checkout/sessions?customer_details[email]=${encodeURIComponent(email)}` +
       `&status=complete&limit=10&expand[]=data.line_items`
   );
   if (!sessions || !Array.isArray(sessions.data)) return null;
-  const withSub = sessions.data.filter(
-    (s) => s.subscription && sameProduct({ product: productOfSession(s) }, product)
-  );
-  if (!withSub.length) return null;
-  return withSub[0];
+  for (const s of sessions.data) {
+    if (!sameProduct({ product: productOfSession(s) }, product)) continue;
+    if (s.subscription) {
+      const end = await subscriptionValidUntil(s.subscription);
+      if (end) return { session: s, validUntil: end };
+    } else if (
+      (s.metadata && s.metadata.plan === "lifetime") ||
+      ((s.line_items?.data || []).some((li) => {
+        const m = parsePriceMap()[li.price && li.price.id];
+        return m && m.plan === "lifetime";
+      }))
+    ) {
+      return { session: s, validUntil: Math.floor(Date.now() / 1000) + LIFETIME_DAYS };
+    }
+  }
+  return null;
 }
 
 async function subscriptionValidUntil(subscriptionId) {
@@ -80,9 +95,9 @@ module.exports = async (req, res) => {
 
     if (!lic && normEmail && !key) {
       // Not in the store: verify the purchase with Stripe and provision.
-      const session = await findPaidSubscription(normEmail, product);
-      if (session) {
-        const validUntil = await subscriptionValidUntil(session.subscription);
+      const purchase = await findPaidPurchase(normEmail, product);
+      if (purchase) {
+        const validUntil = purchase.validUntil;
         if (validUntil) {
           const existing = (data.licenses || []).find(
             (l) => l.email === normEmail && sameProduct(l, product)
@@ -90,10 +105,14 @@ module.exports = async (req, res) => {
           if (existing) {
             existing.status = "active";
             existing.valid_until = new Date(validUntil * 1000).toISOString();
-            existing.stripe_ids = Object.assign(
-              existing.stripe_ids || {},
-              { subscription: session.subscription, customer: session.customer }
-            );
+            const ids = Object.assign(existing.stripe_ids || {}, {
+              checkout_session: purchase.session.id,
+              customer: purchase.session.customer,
+            });
+            // Only overwrite the subscription id when this purchase really
+            // was a subscription - one-time sessions have none.
+            if (purchase.session.subscription) ids.subscription = purchase.session.subscription;
+            existing.stripe_ids = ids;
             lic = existing;
           } else {
             lic = {
@@ -106,8 +125,9 @@ module.exports = async (req, res) => {
               created: new Date().toISOString(),
               source: "stripe-query",
               stripe_ids: {
-                subscription: session.subscription,
-                customer: session.customer,
+                subscription: purchase.session.subscription || undefined,
+                checkout_session: purchase.session.id,
+                customer: purchase.session.customer,
               },
             };
             data.licenses.push(lic);
