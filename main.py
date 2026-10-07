@@ -737,19 +737,22 @@ recording = {
 }
 frames = []
 frames_lock = threading.Lock()
-# Seconds to keep capturing after the hotkey is released, so audio still
-# sitting in the audio device's buffer reaches the transcript. This is the
-# hard cap only: the normal path finalizes as soon as the capture callback
-# goes quiet (CAPTURE_QUIET_S with no new chunk), which on this stack happens
-# ~120-170 ms after release - the old fixed 0.5 s wait was ~350 ms of dead
-# wall-clock before every transcription.
+# Post-release drain, delivery-based: a capture block delivered at wall time D
+# contains audio up to D - negotiated_latency, so the moment a delivery lands
+# past (release + latency), everything spoken before the release is captured.
+# WASAPI exposes no usable PortAudio clock (currentTime/ADC times arrive zeroed)
+# and deliveries tick at the block cadence (~60 ms at a 50 ms blocksize), so
+# this watches real delivery timestamps instead. With the negotiated 0.1 s
+# latency this finalizes ~110-170 ms after release; the old fixed 0.5 s timer
+# made every dictation wait 400 ms.
 CAPTURE_TAIL_DRAIN_S = 0.4
-# No new capture chunk for this long after release => the device buffer has
-# drained and transcription can start.
-CAPTURE_QUIET_S = 0.05
-# Never finalize earlier than this after release: covers the callback cadence
-# and the tail of a final in-flight block.
-CAPTURE_MIN_DRAIN_S = 0.12
+# Delivery granularity: 50 ms blocks keep the drain quantization tight without
+# meaningfully raising callback overhead (20 callbacks/s).
+CAPTURE_BLOCKSIZE = 800
+# Map from wall clock into PortAudio's stream clock, refreshed every callback.
+_capture_clock = {"last_delivery_wall": 0.0}
+# Actual negotiated input latency, set in main() once the stream is open.
+STREAM_LATENCY_S = 0.15
 # Set while a recording waits for its drain; lets a fast re-press finalize the
 # previous dictation immediately instead of losing it.
 _pending = {"seq": None, "profile": None, "command": False}
@@ -1184,6 +1187,9 @@ def audio_callback(indata, frames_cnt, time_info, status):
             f"[{recording['profile'].name}] Audio input overflow ({status}) - "
             "audio may be missing from this recording"
         )
+    # Track wall-clock delivery: a block delivered at D carries audio up to
+    # D - negotiated latency (used by the post-release drain watch).
+    _capture_clock["last_delivery_wall"] = time.time()
     # Keep appending through the post-release drain so audio that was still in
     # the device's buffer when the hotkey went up is not thrown away.
     if recording["active"] or time.time() < recording["until"]:
@@ -1225,8 +1231,10 @@ def stop_recording():
     profile = recording["profile"]
     command = recording.get("command", False)
     recording["active"] = False
-    recording["until"] = time.time() + CAPTURE_TAIL_DRAIN_S
-    recording["stopped"] = time.time()
+    now = time.time()
+    recording["release_wall"] = now
+    recording["until"] = now + CAPTURE_TAIL_DRAIN_S
+    recording["stopped"] = now
     _pending["seq"] = recording["seq"]
     _pending["profile"] = profile
     _pending["command"] = command
@@ -1241,35 +1249,22 @@ def stop_recording():
 
 
 def _drain_watch(seq, profile, command=False):
-    """Finalize as soon as the device buffer has drained after a release.
+    """Finalize the moment the delivered audio covers the release instant.
 
-    The capture callback keeps appending while `recording["until"]` is in the
-    future; once no new chunk has arrived for CAPTURE_QUIET_S (and at least
-    CAPTURE_MIN_DRAIN_S has passed since release), the buffer is empty and
-    waiting longer is dead wall-clock. The hard cap bounds pathological
-    stall-then-burst devices.
+    A block delivered at wall time D carries audio up to D - negotiated
+    latency, so once a delivery lands past (release + latency) everything
+    spoken before the release is captured. Waiting longer is dead wall-clock;
+    waiting less cuts the last words still sitting in the device buffer. The
+    hard cap bounds pathological cases (no deliveries at all).
     """
-    stopped = recording.get("stopped", time.time())
-    last_count = -1
-    quiet_since = None
+    stopped = recording.get("release_wall", time.time())
     deadline = stopped + CAPTURE_TAIL_DRAIN_S
+    threshold = stopped + STREAM_LATENCY_S
     while True:
-        time.sleep(0.01)
-        now = time.time()
-        with frames_lock:
-            count = len(frames)
-        if count != last_count:
-            last_count = count
-            quiet_since = None
-        elif quiet_since is None:
-            quiet_since = now
-        if now >= deadline:
+        time.sleep(0.005)
+        if time.time() >= deadline:
             break
-        if (
-            now - stopped >= CAPTURE_MIN_DRAIN_S
-            and quiet_since is not None
-            and now - quiet_since >= CAPTURE_QUIET_S
-        ):
+        if _capture_clock["last_delivery_wall"] >= threshold:
             break
     _finish_recording(seq, profile, command)
 
@@ -2113,6 +2108,9 @@ def main():
         "channels": 1,
         "dtype": "float32",
         "callback": audio_callback,
+        # 50 ms delivery blocks: tighter post-release drain quantization
+        # (~60 ms cadence instead of ~110 ms) at negligible callback overhead.
+        "blocksize": int(cfg.get("capture_blocksize", CAPTURE_BLOCKSIZE)),
     }
     # sounddevice's default maps to a ~26 ms device buffer: any callback stall
     # longer than that (model load, CPU wake-up from idle, background scan)
@@ -2129,33 +2127,45 @@ def main():
         log(f"Using configured microphone device: {input_device}")
 
     # Degrade gracefully: prefer the configured device and the generous
-    # latency, but fall back to defaults if a device rejects either.
+    # latency, but fall back to defaults if a device rejects either. If even
+    # that fails, retry once without the capture blocksize override.
     stream = None
     devices = [input_device, None] if input_device not in (None, "") else [None]
     latencies = [stream_kwargs.get("latency"), None]
     last_exc = None
-    for dev in devices:
-        for lat in latencies:
-            kw = dict(stream_kwargs)
-            if lat is not None:
-                kw["latency"] = lat
-            else:
-                kw.pop("latency", None)
-            if dev is not None:
-                kw["device"] = dev
-            else:
-                kw.pop("device", None)
-            try:
-                stream = sd.InputStream(**kw)
-                stream.start()
+    for _attempt in range(2):
+        for dev in devices:
+            for lat in latencies:
+                kw = dict(stream_kwargs)
+                if lat is not None:
+                    kw["latency"] = lat
+                else:
+                    kw.pop("latency", None)
+                if dev is not None:
+                    kw["device"] = dev
+                else:
+                    kw.pop("device", None)
+                try:
+                    stream = sd.InputStream(**kw)
+                    stream.start()
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    log(f"Audio stream open failed (device={dev!r}, latency={lat!r}): {exc}")
+            if stream is not None:
                 break
-            except Exception as exc:
-                last_exc = exc
-                log(f"Audio stream open failed (device={dev!r}, latency={lat!r}): {exc}")
-        if stream is not None:
+        if stream is not None or "blocksize" not in stream_kwargs:
             break
+        log("Retrying without the blocksize override")
+        stream_kwargs.pop("blocksize", None)
     if stream is None:
         raise last_exc
+    global STREAM_LATENCY_S
+    try:
+        STREAM_LATENCY_S = float(getattr(stream, "latency", 0.0) or 0.0) or CAPTURE_DEFAULT_LATENCY_S
+    except Exception:
+        STREAM_LATENCY_S = CAPTURE_DEFAULT_LATENCY_S
+    log(f"Capture latency (negotiated): {STREAM_LATENCY_S * 1e3:.0f} ms")
 
     # Shorter GIL hand-off quantum: the audio callback shares the interpreter
     # with the Tk UI and the model-load threads, and every millisecond it waits
