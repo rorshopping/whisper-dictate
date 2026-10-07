@@ -77,3 +77,4 @@ config.local.json
 # mudler/parakeet.cpp release zips - never commit binaries
 packaging/parakeet-bin/
 .parity-scratch/
+packaging/becker-bin/

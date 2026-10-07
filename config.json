@@ -87,6 +87,38 @@
         "typing": "Tippe…",
         "error": "Fehler"
       }
+    },
+    {
+      "name": "EN-Becker",
+      "hotkey": ["ctrl", "shift", "y"],
+      "engine": "becker",
+      "model": "C:\\Users\\Richard\\Documents\\Cursor_Projects\\llamacpp_becker_performant\\engine-rs\\models\\parakeet-v3-onnx",
+      "language": "en",
+      "hotwords_file": "hotwords-en.txt",
+      "corrections_file": "corrections-en.txt",
+      "labels": {
+        "listening": "Listening…",
+        "transcribing": "Transcribing…",
+        "loading": "Loading model…",
+        "typing": "Typing…",
+        "error": "Error"
+      }
+    },
+    {
+      "name": "DE-Becker",
+      "hotkey": ["ctrl", "alt", "y"],
+      "engine": "becker",
+      "model": "C:\\Users\\Richard\\Documents\\Cursor_Projects\\llamacpp_becker_performant\\engine-rs\\models\\nemotron35-onnx",
+      "language": "de",
+      "hotwords_file": "hotwords-de.txt",
+      "corrections_file": "corrections-de.txt",
+      "labels": {
+        "listening": "Hören…",
+        "transcribing": "Transkribieren…",
+        "loading": "Lade Modell…",
+        "typing": "Tippe…",
+        "error": "Fehler"
+      }
     }
   ]
 }

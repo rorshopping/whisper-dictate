@@ -1454,6 +1454,19 @@ def get_model(profile):
                         log=log,
                         **model_options,
                     )
+                elif profile.engine == "becker":
+                    # becker-performant engine (Rust + ONNX Runtime): profile
+                    # "model" is a prepared model directory (vocab.txt or
+                    # vocab.json), not a Hugging Face id.
+                    from becker_engine import BeckerModel
+
+                    profile.model_obj = BeckerModel(
+                        profile.model,
+                        device=DEVICE,
+                        compute_type=COMPUTE,
+                        log=log,
+                        language=getattr(profile, "language", None),
+                    )
                 else:
                     from faster_whisper import WhisperModel
 
