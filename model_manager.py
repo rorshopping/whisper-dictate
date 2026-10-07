@@ -181,6 +181,10 @@ class ModelManifest:
     model_type: str | None = None
     architectures: tuple[str, ...] = ()
     license: str | None = None
+    # Hugging Face repo the files actually download from, when the manifest's
+    # model_id is only a local identity (e.g. a GGUF derived from one file of
+    # a shared collection repo).  None downloads from model_id itself.
+    repository: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.model_id, str) or not self.model_id.strip():
@@ -235,6 +239,16 @@ class ModelManifest:
             if isinstance(self.architectures, str)
             else (self.architectures or ())
         )
+        repository = self.repository
+        if repository is not None:
+            repository = str(repository).strip()
+            repo_parts = repository.split("/")
+            if (
+                not repository
+                or repo_parts[0] in {"", ".", ".."}
+                or any(part in {"", ".", ".."} for part in repo_parts)
+            ):
+                raise ManifestError(f"unsafe repository in manifest: {self.repository!r}")
         object.__setattr__(self, "model_id", self.model_id.strip())
         object.__setattr__(self, "revision", self.revision.strip())
         object.__setattr__(self, "required_files", required)
@@ -242,6 +256,7 @@ class ModelManifest:
         object.__setattr__(self, "language", str(self.language).lower().replace("_", "-") if self.language else None)
         object.__setattr__(self, "languages", languages)
         object.__setattr__(self, "architectures", tuple(str(item) for item in architecture_values))
+        object.__setattr__(self, "repository", repository or None)
 
     @property
     def files(self) -> tuple[ModelFile, ...]:
@@ -345,6 +360,7 @@ class ModelManifest:
             model_type=data.get("model_type"),
             architectures=tuple(data.get("architectures") or ()),
             license=data.get("license"),
+            repository=data.get("repository"),
         )
 
     from_dict = from_mapping
@@ -371,6 +387,8 @@ class ModelManifest:
             result["architectures"] = list(self.architectures)
         if self.license:
             result["license"] = self.license
+        if self.repository:
+            result["repository"] = self.repository
         return result
 
 
@@ -626,6 +644,108 @@ DEFAULT_MANIFEST_DATA: dict[str, Any] = {
                     "name": "nemotron-3.5-asr-streaming-0.6b.q8_0.gguf",
                     "size": 742090464,
                     "sha256": "3fc991d3badad7277c11030a7519832cddaf2057aafed6d4b25147e953a070b1",
+                },
+            ],
+        },
+        {
+            # ggml GGUF (parakeet.cpp) of nvidia/parakeet-tdt-0.6b-v3,
+            # published in mudler's single collection repo.  The manifest id
+            # is the local identity; "repository" carries the download repo.
+            "id": "mudler/parakeet-tdt-0.6b-v3-GGUF",
+            "revision": "741158ae71e64ef5c89385862c18f777d07a97a1",
+            "repository": "mudler/parakeet-cpp-gguf",
+            "language": "multilingual",
+            "languages": [
+                "en",
+                "es",
+                "fr",
+                "de",
+                "bg",
+                "hr",
+                "cs",
+                "da",
+                "nl",
+                "et",
+                "fi",
+                "el",
+                "hu",
+                "it",
+                "lv",
+                "lt",
+                "mt",
+                "pl",
+                "pt",
+                "ro",
+                "sk",
+                "sl",
+                "sv",
+                "ru",
+                "uk",
+            ],
+            "model_type": "parakeet_gguf",
+            "architectures": ["parakeet_tdt"],
+            "license": "CC-BY-4.0",
+            "required_files": [
+                {
+                    "name": "tdt-0.6b-v3-f16.gguf",
+                    "size": 1441046400,
+                    "sha256": "8ba47343e1e919895aca90e099150a01ed203ee0942d8ed31e27295efc5abb22",
+                },
+            ],
+        },
+        {
+            # ggml GGUF (parakeet.cpp) of the same nvidia
+            # nemotron-3.5-asr-streaming-0.6b checkpoint family the
+            # transformers engine uses (f16, converter parity WER 0 vs NeMo).
+            "id": "mudler/nemotron-3.5-asr-streaming-0.6b-GGUF",
+            "revision": "741158ae71e64ef5c89385862c18f777d07a97a1",
+            "repository": "mudler/parakeet-cpp-gguf",
+            "language": "multilingual",
+            "languages": [
+                "en",
+                "es",
+                "de",
+                "fr",
+                "it",
+                "ar",
+                "ja",
+                "ko",
+                "pt",
+                "ru",
+                "hi",
+                "zh",
+                "vi",
+                "he",
+                "nl",
+                "cs",
+                "da",
+                "pl",
+                "no",
+                "sv",
+                "th",
+                "tr",
+                "bg",
+                "el",
+                "et",
+                "fi",
+                "hr",
+                "hu",
+                "lt",
+                "lv",
+                "ro",
+                "sk",
+                "uk",
+                "mt",
+                "sl",
+            ],
+            "model_type": "nemotron3_5_asr_gguf",
+            "architectures": ["Nemotron3_5AsrForRNNT"],
+            "license": "OpenMDW-1.1",
+            "required_files": [
+                {
+                    "name": "nemotron-3.5-asr-streaming-0.6b-f16.gguf",
+                    "size": 1484324992,
+                    "sha256": "b64413c3886edf2b45eb3e757f911f1bc8020b7cf157622cd0bd0452c6d84aac",
                 },
             ],
         },
@@ -1886,7 +2006,7 @@ class ModelManager:
         return path
 
     def _url_for_file(self, manifest: ModelManifest, base_url: str, filename: str) -> str:
-        model_path = quote(manifest.model_id, safe="/")
+        model_path = quote(manifest.repository or manifest.model_id, safe="/")
         revision = quote(manifest.revision, safe="")
         file_path = quote(filename, safe="/")
         if any(token in base_url for token in ("{model_id}", "{revision}", "{filename}")):

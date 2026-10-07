@@ -53,6 +53,40 @@
         "typing": "Tippe…",
         "error": "Fehler"
       }
+    },
+    {
+      "name": "EN-Parakeet",
+      "hotkey": ["ctrl", "shift", "z"],
+      "engine": "parakeet-gguf",
+      "model": "mudler/parakeet-tdt-0.6b-v3-GGUF",
+      "model_revision": "741158ae71e64ef5c89385862c18f777d07a97a1",
+      "language": "en",
+      "hotwords_file": "hotwords-en.txt",
+      "corrections_file": "corrections-en.txt",
+      "labels": {
+        "listening": "Listening…",
+        "transcribing": "Transcribing…",
+        "loading": "Loading model…",
+        "typing": "Typing…",
+        "error": "Error"
+      }
+    },
+    {
+      "name": "DE-Parakeet",
+      "hotkey": ["ctrl", "alt", "z"],
+      "engine": "parakeet-gguf",
+      "model": "mudler/nemotron-3.5-asr-streaming-0.6b-GGUF",
+      "model_revision": "741158ae71e64ef5c89385862c18f777d07a97a1",
+      "language": "de",
+      "hotwords_file": "hotwords-de.txt",
+      "corrections_file": "corrections-de.txt",
+      "labels": {
+        "listening": "Hören…",
+        "transcribing": "Transkribieren…",
+        "loading": "Lade Modell…",
+        "typing": "Tippe…",
+        "error": "Fehler"
+      }
     }
   ]
 }

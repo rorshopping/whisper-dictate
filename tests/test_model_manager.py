@@ -51,16 +51,40 @@ class ModelManagerTests(unittest.TestCase):
 
     def test_defaults_are_pinned_and_optional_formats_are_not_required(self):
         catalog = default_manifests()
-        self.assertEqual(len(catalog), 2)
+        # Two transformers Nemotron models plus their ggml GGUF conversions
+        # (parakeet-gguf engine); every entry pinned to an immutable revision.
+        self.assertEqual(len(catalog), 4)
+        gguf = {
+            manifest.model_id: manifest
+            for manifest in catalog
+            if manifest.model_id.endswith("-GGUF")
+        }
+        self.assertEqual(
+            set(gguf),
+            {
+                "mudler/parakeet-tdt-0.6b-v3-GGUF",
+                "mudler/nemotron-3.5-asr-streaming-0.6b-GGUF",
+            },
+        )
+        for manifest in gguf.values():
+            self.assertEqual(manifest.repository, "mudler/parakeet-cpp-gguf")
+            required = {entry.name for entry in manifest.required_files}
+            self.assertEqual(len(required), 1)
+            self.assertIn(".gguf", next(iter(required)))
         for manifest in catalog:
             self.assertRegex(manifest.revision, r"^[0-9a-f]{40}$")
+            required = {entry.name for entry in manifest.required_files}
+            for entry in manifest.required_files:
+                self.assertRegex(entry.sha256, r"^[0-9a-f]{64}$")
+        torch_manifests = [
+            manifest for manifest in catalog if manifest.model_id not in gguf
+        ]
+        for manifest in torch_manifests:
             required = {entry.name for entry in manifest.required_files}
             self.assertIn("model.safetensors", required)
             self.assertNotIn("nemotron-speech-streaming-en-0.6b.nemo", required)
             self.assertNotIn("nemotron-3.5-asr-streaming-0.6b.nemo", required)
             self.assertNotIn("nemotron-speech-streaming-en-0.6b.q8_0.gguf", required)
-            for entry in manifest.required_files:
-                self.assertRegex(entry.sha256, r"^[0-9a-f]{64}$")
 
     def test_manifest_accepts_optional_flags_in_a_unified_files_list(self):
         manifest = ModelManifest.from_mapping(

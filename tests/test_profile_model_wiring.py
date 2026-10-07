@@ -218,6 +218,39 @@ class ProfileModelWiringTests(unittest.TestCase):
         self.assertEqual(kwargs["cache_dir"], self.main.MODEL_CACHE_DIR)
         self.assertEqual(kwargs["local_model_path"], Path("local/snapshot"))
 
+    def test_get_model_passes_resolver_options_to_parakeet_engine(self):
+        calls = []
+
+        class FakeParakeetModel:
+            def __init__(self, model_id, **kwargs):
+                calls.append((model_id, kwargs))
+                self.model_id = model_id
+
+        fake_engine = types.ModuleType("parakeet_engine")
+        fake_engine.ParakeetModel = FakeParakeetModel
+        profile = self.main.Profile(
+            0,
+            {
+                "name": "EN-GGUF",
+                "engine": "parakeet-gguf",
+                "model": "mudler/parakeet-tdt-0.6b-v3-GGUF",
+                "model_revision": "gguf-revision",
+                "language": "en",
+            },
+        )
+        profile.model_obj = None
+        with patch.dict(sys.modules, {"parakeet_engine": fake_engine}), patch.object(
+            self.main, "show_state"
+        ), patch.object(self.main, "log", lambda _message: None):
+            loaded = self.main.get_model(profile)
+
+        self.assertIsInstance(loaded, FakeParakeetModel)
+        model_id, kwargs = calls[0]
+        self.assertEqual(model_id, "mudler/parakeet-tdt-0.6b-v3-GGUF")
+        self.assertEqual(kwargs["revision"], "gguf-revision")
+        self.assertEqual(kwargs["language"], "en")
+        self.assertEqual(kwargs["cache_dir"], self.main.MODEL_CACHE_DIR)
+
     def test_resolver_failure_is_logged_and_re_raised_without_fallback(self):
         class BrokenNemotronModel:
             def __init__(self, *_args, **_kwargs):

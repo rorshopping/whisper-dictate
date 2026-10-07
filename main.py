@@ -565,6 +565,8 @@ class Profile:
         self.engine = p.get("engine") or (
             "nemotron" if "/" in self.model else "faster-whisper"
         )
+        # "engine" values: "faster-whisper" (default), "nemotron"
+        # (transformers/torch), or "parakeet-gguf" (parakeet.cpp GGUFs).
         self.language = p.get("language", "en")
         # Keep the original profile mapping available to the resolver bridge.
         # Resolver-specific keys are deliberately not flattened into the
@@ -1437,6 +1439,21 @@ def get_model(profile):
                         log=log,
                         **model_options,
                     )
+                elif profile.engine == "parakeet-gguf":
+                    # Imported lazily: only gguf profiles need parakeet.cpp.
+                    # GGUFs resolve through the same pinned-model manager as
+                    # the transformers engine, so _nemotron_model_options
+                    # (which is engine-agnostic despite its name) applies.
+                    from parakeet_engine import ParakeetModel
+
+                    model_reference, model_options = _nemotron_model_options(profile)
+                    profile.model_obj = ParakeetModel(
+                        model_reference,
+                        device=DEVICE,
+                        compute_type=COMPUTE,
+                        log=log,
+                        **model_options,
+                    )
                 else:
                     from faster_whisper import WhisperModel
 
@@ -1494,8 +1511,17 @@ def unload_models():
     with model_lock:
         for p in profiles:
             if p.model_obj is not None:
-                p.model_obj = None
+                obj, p.model_obj = p.model_obj, None
                 unloaded.append(p.model)
+                # Engines with an explicit release (parakeet.cpp frees its GGML
+                # buffers deterministically) drop their memory right here;
+                # torch-backed models rely on GC plus the empty_cache below.
+                closer = getattr(obj, "close", None)
+                if callable(closer):
+                    try:
+                        closer()
+                    except Exception as exc:
+                        log(f"Releasing {p.model} failed: {exc}")
         if unloaded:
             # Nemotron models hold VRAM; torch only returns it on request.
             torch = sys.modules.get("torch")
