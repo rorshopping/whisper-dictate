@@ -91,6 +91,63 @@ class WindowsTemplateTests(unittest.TestCase):
         self.assertNotIn("AfterInstall", self.text)
 
 
+class WindowsEngineDefaultsTests(unittest.TestCase):
+    """The optional parakeet.cpp runtime flip (packaging/windows/engine_defaults.json)."""
+
+    @classmethod
+    def setUpClass(cls):
+        import json
+
+        cls.json = json
+        cls.spec_text = read(ROOT / "WhisperDictate.spec")
+        cls.defaults = json.loads(
+            read(PACKAGING / "windows" / "engine_defaults.json")
+        )
+        cls.bundled = json.loads(read(ROOT / "config.json"))
+
+    def test_overrides_target_known_profiles_and_pinned_manifests(self):
+        from model_manager import DEFAULT_MANIFESTS
+
+        bundled_models = {
+            profile.get("model") for profile in self.bundled.get("profiles") or []
+        }
+        for model, override in self.defaults.items():
+            if model.startswith("_"):
+                continue
+            with self.subTest(model=model):
+                self.assertIn(model, bundled_models)
+                manifest = DEFAULT_MANIFESTS.get(override["model"])
+                self.assertEqual(override["model_revision"], manifest.revision)
+                self.assertIn(override["engine"], {"parakeet-gguf", "nemotron", "faster-whisper"})
+
+    def test_spec_flip_is_conditional_on_the_staged_runtime(self):
+        # The runtime dir is gitignored: the build must behave exactly as
+        # before when it is absent, and the flip must never bundle ggufs.
+        self.assertIn("parakeet-bin", self.spec_text)
+        self.assertIn("engine_defaults.json", self.spec_text)
+        self.assertIn("platform.system() == 'Windows'", self.spec_text)
+        self.assertNotIn(".gguf", self.spec_text)
+        self.assertNotIn(".safetensors", self.spec_text)
+        # PyInstaller datas entries are (source, dest_dir): the flipped config
+        # must be a file named config.json destined for '.' to land at
+        # _internal/config.json (a NamedTemporaryFile would create a directory).
+        self.assertIn("flipped_config, '.'", self.spec_text)
+        self.assertNotIn("-config.json", self.spec_text)
+
+    def test_bundled_default_config_keeps_engine_choices_explicit(self):
+        engines = set()
+        hotkeys = []
+        for profile in self.bundled.get("profiles") or []:
+            engines.add(profile["engine"])
+            hotkeys.append("+".join(profile["hotkey"]))
+            self.assertIn(profile["engine"], {"parakeet-gguf", "nemotron", "faster-whisper"})
+        # The torch engine stays available and the gguf engine is opt-in
+        # selectable in source checkouts; the packaged default flip happens
+        # only in the spec when the runtime is staged.
+        self.assertIn("nemotron", engines)
+        self.assertEqual(len(hotkeys), len(set(hotkeys)))
+
+
 class MacOSDocumentationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

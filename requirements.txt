@@ -9,12 +9,16 @@ pynput
 pyperclip
 Pillow
 
-# English Nemotron engine (EN profile). For GPU transcription install the
-# CUDA build of torch first - PyPI's Windows torch wheel is CPU-only:
+# English/German Nemotron engine (engine "nemotron"). For GPU transcription
+# install the CUDA build of torch first - PyPI's Windows torch wheel is
+# CPU-only:
 #   pip install torch --index-url https://download.pytorch.org/whl/cu126
 torch
 transformers>=5.13
 librosa
+
+# The "parakeet-gguf" engine (parakeet_engine.py) has no Python dependencies:
+# it loads the parakeet.cpp runtime DLL via ctypes (staged by install.py).
 
 # Windows: CUDA math libraries (needed for GPU transcription on Windows)
 nvidia-cublas-cu12 ; sys_platform == "win32"

@@ -50,6 +50,37 @@ before publishing it. Code signing of the installer or executable is a
 separate release gate; this template contains no certificate, private key,
 or signing command that would guess an identity.
 
+## The parakeet.cpp runtime (optional, Windows)
+
+[`../parakeet_engine.py`](../parakeet_engine.py) adds the `"parakeet-gguf"`
+engine (ggml GGUF models via [parakeet.cpp](https://github.com/mudler/parakeet.cpp)'s
+flat C API, loaded in-process). The runtime DLL is a build-time staging
+decision, never a committed file:
+
+- Stage `parakeet.dll` into `packaging/parakeet-bin/` (gitignored) before
+  running the spec. The CPU build (~2 MB, self-contained) comes from
+  `parakeet-v*-lib-win-cpu-x64.zip`; the CUDA build additionally needs
+  `cublas64_12.dll`, `cublasLt64_12.dll`, and `cudart64_12.dll` from
+  `parakeet-v*-lib-win-cuda-x64.zip` and `cudart-parakeet-bin-win-cuda-x64.zip`.
+- When staged, [`../WhisperDictate.spec`](../WhisperDictate.spec) ships the
+  DLLs in the payload and flips matching bundled default profiles to the gguf
+  engine using [`windows/engine_defaults.json`](windows/engine_defaults.json).
+  Without it the build is byte-for-byte the previous torch-only payload.
+- `python install.py` (source installs) fetches the CPU build into the same
+  folder; a hand-staged CUDA build is never overwritten.
+- The staged DLLs are runtime components, not model weights. GGUF model
+  weights are never bundled: the parakeet engine resolves pinned GGUFs through
+  `model_manager` exactly like the transformers engine (first-run download,
+  hash-verified).
+
+The measured parity behind the EN default flip (2026-10-07): synthesized TTS
+corpus, real WER 4.88% (parakeet-tdt-0.6b-v3 f16 GGUF) vs 7.32% (torch
+`nemotron-speech-streaming-en-0.6b`), no regression on the correction/hotword
+cases, GPU decode 4-8x faster, model load 19 s -> 1.6 s. The German GGUF kept
+the torch engine: the published GGUF bakes NeMo's default 240 ms lookahead
+(`att_context [56,3]`) instead of the 1.12 s setting the transformers engine
+uses, which measured as a small (~2.5%) word drift.
+
 ## macOS signed artifact
 
 [`macos/build_signed_dmg.sh`](macos/build_signed_dmg.sh) packages the same

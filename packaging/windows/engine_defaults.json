@@ -1,0 +1,18 @@
+{
+  "_comment": [
+    "Windows packaging default engine overrides, applied by WhisperDictate.spec",
+    "when the parakeet.cpp runtime (packaging/parakeet-bin/parakeet.dll) is",
+    "staged for the build. Keys are the profile's current model; values replace",
+    "the engine/model/model_revision keys of matching profiles. Measured parity",
+    "(2026-10-07, .parity-scratch corpus): EN real WER 4.88% (parakeet f16 GGUF)",
+    "vs 7.32% (torch EN), no hotword regressions, GPU decode 4-8x faster. The",
+    "DE Nemotron GGUF measured 2.5% word drift vs the torch engine (the GGUF",
+    "bakes NeMo's default 240 ms lookahead instead of the 1.12 s setting the",
+    "transformers engine uses), so DE deliberately stays on the torch engine."
+  ],
+  "nvidia/nemotron-speech-streaming-en-0.6b": {
+    "engine": "parakeet-gguf",
+    "model": "mudler/parakeet-tdt-0.6b-v3-GGUF",
+    "model_revision": "741158ae71e64ef5c89385862c18f777d07a97a1"
+  }
+}

@@ -72,3 +72,8 @@ config.local.json
 
 # stray model caches from ad-hoc test runs
 --doctor/
+
+# parakeet.cpp runtime (parakeet.dll + CUDA cudart DLLs), downloaded from
+# mudler/parakeet.cpp release zips - never commit binaries
+packaging/parakeet-bin/
+.parity-scratch/

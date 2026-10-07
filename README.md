@@ -10,6 +10,14 @@ Supports **two profiles** in one app:
 |---------|--------|--------|-------|----------|
 | EN      | Ctrl + Shift + Space | NVIDIA Nemotron (transformers) | `nvidia/nemotron-speech-streaming-en-0.6b` | English |
 | DE      | Ctrl + Alt + Space   | NVIDIA Nemotron (transformers) | `nvidia/nemotron-3.5-asr-streaming-0.6b` (language prompt `de` → de-DE) | German |
+| EN-Parakeet | Ctrl + Shift + Z | parakeet.cpp (ggml GGUF) | `mudler/parakeet-tdt-0.6b-v3-GGUF` | English |
+| DE-Parakeet | Ctrl + Alt + Z   | parakeet.cpp (ggml GGUF) | `mudler/nemotron-3.5-asr-streaming-0.6b-GGUF` (language prompt `de`) | German |
+
+The `*-Parakeet` profiles run the same model family through
+[parakeet.cpp](https://github.com/mudler/parakeet.cpp)'s ggml runtime
+(`"engine": "parakeet-gguf"`) — see [ggml GGUF engine](#ggml-gguf-engine).
+The Windows release build ships with the EN default on the gguf engine when
+the runtime is staged; everything else stays on the torch engines.
 
 The status indicator sits at the bottom-center of the screen and always shows
 the current state and both hotkeys, so you never forget them.
@@ -333,6 +341,30 @@ Common notes:
 - To go back to faster-whisper for a profile, set
   `"engine": "faster-whisper"` and a faster-whisper `"model"` (e.g. `small.en`
   for English, `large-v3-turbo` for German) in `config.json`.
+
+### ggml GGUF engine
+
+The `EN-Parakeet` / `DE-Parakeet` profiles (or any profile with
+`"engine": "parakeet-gguf"`) transcribe through
+[parakeet.cpp](https://github.com/mudler/parakeet.cpp) — the same Nemotron
+checkpoints and NVIDIA Parakeet models converted to ggml GGUF (f16, converter
+parity WER 0 vs NeMo), executed in-process via a small C API instead of
+torch/transformers:
+
+- No Python ML stack: the engine needs only `parakeet.dll` (~2 MB CPU build,
+  fetched by `python install.py`; drop the CUDA build plus its
+  `cublas64_12`/`cublasLt64_12`/`cudart64_12` DLLs into the same folder —
+  `packaging/parakeet-bin/` — for GPU transcription). `PARAKEET_GGUF_DLL` can
+  point anywhere.
+- Loads once and stays resident like the torch engines; measured model load
+  ~1.5 s (vs ~8-19 s) and 4-8x faster GPU decode on the same clips.
+- GGUFs resolve through the same pinned model manager (`mudler/parakeet-cpp-gguf`,
+  hash-pinned), so first-run download and offline checks behave identically.
+- The published multilingual GGUF runs at NeMo's default 240 ms lookahead
+  instead of the torch engine's 1.12 s setting; measured on a TTS corpus this
+  costs the German checkpoint ~2% word drift, which is why German keeps the
+  torch engine by default while English (better WER on the same corpus) ships
+  on the gguf engine in Windows release builds with a staged runtime.
 
 ## Troubleshooting
 

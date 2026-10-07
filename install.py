@@ -25,11 +25,23 @@ import os
 import shutil
 import subprocess
 import sys
+import urllib.request
+import zipfile
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENV_DIR = os.path.join(BASE_DIR, ".venv")
 REQUIREMENTS = os.path.join(BASE_DIR, "requirements.txt")
 CUDA_TORCH_INDEX = "https://download.pytorch.org/whl/cu126"
+# parakeet.cpp runtime for the "parakeet-gguf" engine profiles (parakeet_engine.py).
+# The CPU build is a ~2 MB self-contained download; for GPU transcription drop the
+# CUDA parakeet.dll (+ cublas64_12/cublasLt64_12/cudart64_12 from the cudart zip)
+# into the same folder instead - see packaging/README.md.
+PARAKEET_VERSION = "v0.5.0"
+PARAKEET_LIB_ZIP = (
+    "https://github.com/mudler/parakeet.cpp/releases/download/"
+    f"{PARAKEET_VERSION}/parakeet-{PARAKEET_VERSION}-lib-win-cpu-x64.zip"
+)
+PARAKEET_BIN_DIR = os.path.join(BASE_DIR, "packaging", "parakeet-bin")
 
 
 def detect_platform():
@@ -65,6 +77,42 @@ def run(cmd, check=True, **kwargs):
     subprocess.run(cmd, check=check, **kwargs)
 
 
+def ensure_parakeet_runtime():
+    """Install the parakeet.cpp runtime DLL for the gguf engine profiles.
+
+    Skipped when a runtime is already staged (a previously fetched CPU build
+    or a hand-staged CUDA build). Never overwrites an existing parakeet.dll.
+    """
+    dll = os.path.join(PARAKEET_BIN_DIR, "parakeet.dll")
+    if os.path.exists(dll):
+        print(f"parakeet runtime already staged: {dll}")
+        return
+    print(f"Downloading the parakeet.cpp {PARAKEET_VERSION} runtime (~2 MB)")
+    os.makedirs(PARAKEET_BIN_DIR, exist_ok=True)
+    zip_path = os.path.join(PARAKEET_BIN_DIR, "parakeet-lib.zip")
+    try:
+        with urllib.request.urlopen(PARAKEET_LIB_ZIP, timeout=120) as response:
+            with open(zip_path, "wb") as handle:
+                shutil.copyfileobj(response, handle)
+        with zipfile.ZipFile(zip_path) as archive:
+            names = [n for n in archive.namelist() if n.endswith("parakeet.dll")]
+            if len(names) != 1:
+                raise RuntimeError(f"unexpected archive layout: {archive.namelist()}")
+            with archive.open(names[0]) as source, open(dll, "wb") as target:
+                shutil.copyfileobj(source, target)
+    except Exception as exc:
+        print(
+            f"Could not fetch the parakeet runtime ({exc}). The gguf engine "
+            "profiles will not load; torch-based profiles are unaffected.",
+            file=sys.stderr,
+        )
+        return
+    finally:
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+    print(f"parakeet runtime staged: {dll}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -77,6 +125,11 @@ def main():
         "--cuda",
         action="store_true",
         help="Windows only: install the CUDA build of torch (nvidia GPUs)",
+    )
+    parser.add_argument(
+        "--no-parakeet",
+        action="store_true",
+        help="Windows only: skip fetching the parakeet.cpp runtime DLL",
     )
     parser.add_argument(
         "--no-doctor",
@@ -135,6 +188,9 @@ def main():
         )
     run([python, "-m", "pip", "install", "-r", REQUIREMENTS])
 
+    if platform == "windows" and not args.no_parakeet:
+        ensure_parakeet_runtime()
+
     if not args.no_doctor:
         print()
         run([python, os.path.join(BASE_DIR, "main.py"), "--doctor"], check=False)
@@ -146,6 +202,11 @@ def main():
         print(
             "For GPU transcription, re-run with --cuda (or install the CUDA "
             "torch build into .venv yourself)."
+        )
+        print(
+            "The parakeet.cpp runtime staged above is the CPU build; for GPU "
+            "gguf transcription place the CUDA parakeet.dll (+ cudart DLLs) "
+            "into packaging/parakeet-bin/ - see packaging/README.md."
         )
         print('Set "device": "auto" and "compute_type": "auto" in config.json.')
     else:
