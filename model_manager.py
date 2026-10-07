@@ -831,15 +831,53 @@ class SnapshotValidation:
         }
 
 
+_HASH_CACHE_DIR = Path(
+    os.environ.get("LOCALAPPDATA") or str(Path.home())
+) / "whisper-dictate" / "hash-cache"
+
+
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
+    """SHA-256 of a file, memoized on (resolved path, size, mtime_ns).
+
+    Validation re-hashes multi-GB snapshots on every model load; the hash of
+    an untouched file cannot change, so persist (identity, hash) pairs and
+    re-hash only when size or mtime_ns moves. The cache lives outside the
+    snapshot dirs so HF layouts stay pristine.
+    """
+    path = Path(path)
     try:
-        with open(path, "rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
+        resolved = path.resolve()
+        st = resolved.stat()
+        identity = f"{str(resolved).lower()}|{st.st_size}|{st.st_mtime_ns}"
     except OSError as exc:
         raise ModelIntegrityError(f"cannot read {path}: {exc}") from exc
-    return digest.hexdigest()
+
+    cache_file = _HASH_CACHE_DIR / (hashlib.sha256(identity.encode("utf-8")).hexdigest()[:32] + ".sha")
+    try:
+        cached = cache_file.read_text(encoding="ascii")
+        key, _, digest = cached.partition("\n")
+        if key == identity and len(digest) == 64:
+            return digest
+    except (OSError, ValueError):
+        pass
+
+    digest_obj = hashlib.sha256()
+    try:
+        with open(resolved, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest_obj.update(chunk)
+    except OSError as exc:
+        raise ModelIntegrityError(f"cannot read {path}: {exc}") from exc
+    digest = digest_obj.hexdigest()
+
+    try:
+        _HASH_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = cache_file.with_suffix(".tmp")
+        tmp.write_text(f"{identity}\n{digest}", encoding="ascii")
+        os.replace(tmp, cache_file)
+    except OSError:
+        pass  # cache write is best-effort; correctness never depends on it
+    return digest
 
 
 def verify_model_file(path: str | os.PathLike[str], expected: ModelFile | Mapping[str, Any]) -> None:

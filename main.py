@@ -738,10 +738,18 @@ recording = {
 frames = []
 frames_lock = threading.Lock()
 # Seconds to keep capturing after the hotkey is released, so audio still
-# sitting in the audio device's buffer reaches the transcript. With a big
-# device buffer (capture_latency_s) this also lets a post-release catch-up
-# burst deliver audio that was buffered during a callback stall.
-CAPTURE_TAIL_DRAIN_S = 0.5
+# sitting in the audio device's buffer reaches the transcript. This is the
+# hard cap only: the normal path finalizes as soon as the capture callback
+# goes quiet (CAPTURE_QUIET_S with no new chunk), which on this stack happens
+# ~120-170 ms after release - the old fixed 0.5 s wait was ~350 ms of dead
+# wall-clock before every transcription.
+CAPTURE_TAIL_DRAIN_S = 0.4
+# No new capture chunk for this long after release => the device buffer has
+# drained and transcription can start.
+CAPTURE_QUIET_S = 0.05
+# Never finalize earlier than this after release: covers the callback cadence
+# and the tail of a final in-flight block.
+CAPTURE_MIN_DRAIN_S = 0.12
 # Set while a recording waits for its drain; lets a fast re-press finalize the
 # previous dictation immediately instead of losing it.
 _pending = {"seq": None, "profile": None, "command": False}
@@ -1224,13 +1232,46 @@ def stop_recording():
     _pending["command"] = command
     play_cue("stop")
     log(f"[{profile.name}] Recording stopped")
-    timer = threading.Timer(
-        CAPTURE_TAIL_DRAIN_S,
-        _finish_recording,
+    threading.Thread(
+        target=_drain_watch,
         args=(recording["seq"], profile, command),
-    )
-    timer.daemon = True
-    timer.start()
+        daemon=True,
+        name="drain-watch",
+    ).start()
+
+
+def _drain_watch(seq, profile, command=False):
+    """Finalize as soon as the device buffer has drained after a release.
+
+    The capture callback keeps appending while `recording["until"]` is in the
+    future; once no new chunk has arrived for CAPTURE_QUIET_S (and at least
+    CAPTURE_MIN_DRAIN_S has passed since release), the buffer is empty and
+    waiting longer is dead wall-clock. The hard cap bounds pathological
+    stall-then-burst devices.
+    """
+    stopped = recording.get("stopped", time.time())
+    last_count = -1
+    quiet_since = None
+    deadline = stopped + CAPTURE_TAIL_DRAIN_S
+    while True:
+        time.sleep(0.01)
+        now = time.time()
+        with frames_lock:
+            count = len(frames)
+        if count != last_count:
+            last_count = count
+            quiet_since = None
+        elif quiet_since is None:
+            quiet_since = now
+        if now >= deadline:
+            break
+        if (
+            now - stopped >= CAPTURE_MIN_DRAIN_S
+            and quiet_since is not None
+            and now - quiet_since >= CAPTURE_QUIET_S
+        ):
+            break
+    _finish_recording(seq, profile, command)
 
 
 def _finish_recording(seq, profile, command=False):
@@ -1668,7 +1709,9 @@ def transcribe_thread(profile, buf, command=False):
 def _type_keystrokes(text):
     """Type text as simulated keystrokes (fallback when pasting fails)."""
     ctrl = pkb.Controller()
-    ctrl.typewrite(text, interval=0.005)
+    # interval=0: pynput's per-keystroke sleeps turned a 200-char fallback
+    # into ~1 s; SendInput-rate typing is what the clipboard path is avoiding.
+    ctrl.typewrite(text, interval=0)
 
 
 def type_text(text):
@@ -1696,7 +1739,8 @@ def type_text(text):
         except Exception as exc2:
             log(f"Keystroke fallback failed too: {exc2}")
         return
-    time.sleep(0.05)
+    # No settle sleep before Ctrl+V: pyperclip.copy is a synchronous Win32
+    # clipboard transaction that has already completed by the time it returns.
     try:
         ctrl = pkb.Controller()
         ctrl.press(pkb.Key.ctrl)

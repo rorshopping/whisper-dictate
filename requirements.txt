@@ -1,5 +1,7 @@
 # Core
 faster-whisper
+# Fuzzy hotword reconciliation (C implementation; difflib fallback is ~16x slower)
+rapidfuzz>=3.0
 sounddevice
 numpy
 

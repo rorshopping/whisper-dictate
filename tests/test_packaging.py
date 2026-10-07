@@ -116,9 +116,13 @@ class WindowsEngineDefaultsTests(unittest.TestCase):
                 continue
             with self.subTest(model=model):
                 self.assertIn(model, bundled_models)
+                # becker profiles point at a prepared local model directory
+                # and bypass the resolver/manifests by design.
+                if override["engine"] == "becker":
+                    continue
                 manifest = DEFAULT_MANIFESTS.get(override["model"])
                 self.assertEqual(override["model_revision"], manifest.revision)
-                self.assertIn(override["engine"], {"parakeet-gguf", "nemotron", "faster-whisper"})
+                self.assertIn(override["engine"], {"parakeet-gguf", "nemotron", "faster-whisper", "becker"})
 
     def test_spec_flip_is_conditional_on_the_staged_runtime(self):
         # The runtime dir is gitignored: the build must behave exactly as
@@ -140,7 +144,7 @@ class WindowsEngineDefaultsTests(unittest.TestCase):
         for profile in self.bundled.get("profiles") or []:
             engines.add(profile["engine"])
             hotkeys.append("+".join(profile["hotkey"]))
-            self.assertIn(profile["engine"], {"parakeet-gguf", "nemotron", "faster-whisper"})
+            self.assertIn(profile["engine"], {"parakeet-gguf", "nemotron", "faster-whisper", "becker"})
         # The torch engine stays available and the gguf engine is opt-in
         # selectable in source checkouts; the packaged default flip happens
         # only in the spec when the runtime is staged.

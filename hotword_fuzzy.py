@@ -36,6 +36,10 @@ except Exception:  # rapidfuzz is optional - stdlib fallback below
 _TOKEN_RE = re.compile(r"\S+")
 _PUNCT = string.punctuation + "…—–«»„“”‚‘’¡¿§°"
 
+# reconciled() is called once per utterance with the same hotword list; the
+# canonical/targets build only changes on reload_hotwords, so cache it.
+_PREPARE_CACHE: dict = {}
+
 
 def _score(a, b):
     """Similarity of two strings on a 0-100 scale."""
@@ -53,6 +57,35 @@ def _split_token(token):
     return token[:start], core, token[start + len(core):]
 
 
+def _prepare(hotwords):
+    """(canonical set, match targets) for a hotword list, cached on identity.
+
+    Targets: (canonical, lowercase target, window token count). Multi-word
+    hotwords are compared to same-size token windows; single-word hotwords
+    also try 2- and 3-token windows joined by spaces, because ASR routinely
+    splits compounds ("daten bank" -> Datenbank) and CamelCase names
+    ("deep seek" -> DeepSeek).
+    """
+    key = tuple(hotwords)
+    cached = _PREPARE_CACHE.get(key)
+    if cached is None:
+        canonical = {hw.lower() for hw in hotwords}
+        targets = []
+        for hw in hotwords:
+            words = hw.split()
+            if not words:
+                continue
+            lowered = " ".join(w.lower() for w in words)
+            targets.append((hw, lowered, len(words)))
+            if len(words) == 1:
+                targets.extend((hw, lowered, n) for n in (2, 3))
+        cached = (canonical, targets)
+        if len(_PREPARE_CACHE) > 8:
+            _PREPARE_CACHE.clear()
+        _PREPARE_CACHE[key] = cached
+    return cached
+
+
 def reconcile(text, hotwords, min_score=85, min_len=4, log=None):
     """Rewrite near-misses of the hotword list in ``text``.
 
@@ -63,52 +96,31 @@ def reconcile(text, hotwords, min_score=85, min_len=4, log=None):
     if not text or not hotwords:
         return text
 
-    # (start, end, leading punct, core, trailing punct) per token.
+    # (start, end, leading punct, core, trailing punct, has_digit) per token.
     tokens = []
     for m in _TOKEN_RE.finditer(text):
         lead, core, trail = _split_token(m.group(0))
-        tokens.append((m.start(), m.end(), lead, core, trail))
+        tokens.append(
+            (m.start(), m.end(), lead, core, trail, any(ch.isdigit() for ch in core))
+        )
     if not tokens:
         return text
 
-    canonical = {hw.lower() for hw in hotwords}
-    # Match targets: (canonical, lowercase target, window token count).
-    # Multi-word hotwords are compared to same-size token windows; single-word
-    # hotwords also try 2- and 3-token windows joined by spaces, because ASR
-    # routinely splits compounds ("daten bank" -> Datenbank) and CamelCase
-    # names ("deep seek" -> DeepSeek).
-    targets = []
-    for hw in hotwords:
-        words = hw.split()
-        if not words:
-            continue
-        lowered = " ".join(w.lower() for w in words)
-        targets.append((hw, lowered, len(words)))
-        if len(words) == 1:
-            targets.extend((hw, lowered, n) for n in (2, 3))
+    canonical, targets = _prepare(hotwords)
 
     # Candidate replacements: (score, start, end, replacement, original).
     candidates = []
-
-    def _blocked(core):
-        # Short tokens, numbers, and tokens that already spell a hotword are
-        # never rewritten.
-        return (
-            not core
-            or len(core) < min_len
-            or any(ch.isdigit() for ch in core)
-            or core.lower() in canonical
-        )
 
     for i in range(len(tokens)):
         for hw, target, n in targets:
             window = tokens[i:i + n]
             if len(window) < n:
                 continue
-            cores = [w[3] for w in window]
-            if any(not c or any(ch.isdigit() for ch in c) for c in cores):
+            # Short tokens, numbers, and tokens that already spell a hotword
+            # are never rewritten (digit flags precomputed per token).
+            if any(not w[3] or w[5] for w in window):
                 continue
-            joined = " ".join(cores).lower()
+            joined = " ".join(w[3] for w in window).lower()
             if joined in canonical:
                 continue
             # Short strings inflate similarity; keep them out entirely.
