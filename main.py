@@ -246,7 +246,11 @@ DEFAULTS = {
     "compute_type": "auto",
     "audio_device": None,
     "samplerate": 16000,
-    "capture_latency_s": 1.0,
+    # WASAPI latency hint for capture; the device negotiates down to its floor
+    # (25 ms here). A small buffer cuts post-release drain to ~55-90 ms but
+    # drops audio on callback stalls longer than the buffer - overflows are
+    # logged. Raise toward 1.0 if a machine shows overflow warnings.
+    "capture_latency_s": 0.05,
     "beam_size": 5,
     "type_newline": True,
     "sound": True,
@@ -741,18 +745,20 @@ frames_lock = threading.Lock()
 # contains audio up to D - negotiated_latency, so the moment a delivery lands
 # past (release + latency), everything spoken before the release is captured.
 # WASAPI exposes no usable PortAudio clock (currentTime/ADC times arrive zeroed)
-# and deliveries tick at the block cadence (~60 ms at a 50 ms blocksize), so
-# this watches real delivery timestamps instead. With the negotiated 0.1 s
-# latency this finalizes ~110-170 ms after release; the old fixed 0.5 s timer
-# made every dictation wait 400 ms.
-CAPTURE_TAIL_DRAIN_S = 0.4
-# Delivery granularity: 50 ms blocks keep the drain quantization tight without
-# meaningfully raising callback overhead (20 callbacks/s).
-CAPTURE_BLOCKSIZE = 800
+# and deliveries tick at the block cadence (~25-40 ms at a 25 ms negotiated
+# latency / 400-frame blocks), so this watches real delivery timestamps.
+# Measured (scripts/drain_bench.py): finalize ~200 ms at the old 100 ms buffer,
+# ~55-90 ms at the current 25 ms buffer. The small buffer trades stall headroom
+# for latency: audio during a callback stall longer than ~25 ms is dropped and
+# logged as an overflow (models preload during recording, so the historical
+# in-callback model-load stalls no longer occur on this path).
+CAPTURE_TAIL_DRAIN_S = 0.15
+# Delivery granularity: 25 ms blocks at the negotiated 25 ms latency.
+CAPTURE_BLOCKSIZE = 400
 # Map from wall clock into PortAudio's stream clock, refreshed every callback.
 _capture_clock = {"last_delivery_wall": 0.0}
 # Actual negotiated input latency, set in main() once the stream is open.
-STREAM_LATENCY_S = 0.15
+STREAM_LATENCY_S = 0.025
 # Set while a recording waits for its drain; lets a fast re-press finalize the
 # previous dictation immediately instead of losing it.
 _pending = {"seq": None, "profile": None, "command": False}
@@ -2112,13 +2118,9 @@ def main():
         # (~60 ms cadence instead of ~110 ms) at negligible callback overhead.
         "blocksize": int(cfg.get("capture_blocksize", CAPTURE_BLOCKSIZE)),
     }
-    # sounddevice's default maps to a ~26 ms device buffer: any callback stall
-    # longer than that (model load, CPU wake-up from idle, background scan)
-    # silently drops audio - the recorded clip then starts a word or two into
-    # the sentence. A generous buffer absorbs such stalls instead. Measured on
-    # WASAPI: the device buffers roughly the requested latency, so 1.0 s covers
-    # twice the worst stall seen in dictate.log (0.54 s). Setting 0 or null
-    # keeps the sounddevice default.
+    # Low-latency capture: the device negotiates down from the hint (25 ms
+    # here). The small buffer trades stall headroom for drain latency - see
+    # CAPTURE_TAIL_DRAIN_S above; overflows are logged when they happen.
     capture_latency = cfg.get("capture_latency_s")
     if capture_latency:
         stream_kwargs["latency"] = float(capture_latency)

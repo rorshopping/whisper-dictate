@@ -1,7 +1,7 @@
 """Measure the post-release drain on the real capture stack.
 
-Replicates main.py's stream config (16 kHz mono f32, latency hint 1.0,
-50 ms blocks) and the engine's delivery-based drain criterion: finalize at
+Replicates main.py's stream config (16 kHz mono f32, latency hint 0.05,
+25 ms blocks) and the engine's delivery-based drain criterion: finalize at
 the first delivery landing past (release + negotiated latency). Reports the
 finalize delay after release (wall clock), the delivery cadence, and the
 lost-pre-release-chunk count (correctness: must stay 0).
@@ -15,7 +15,7 @@ import time
 import sounddevice as sd
 
 SR = 16000
-BLOCK = 800       # 50 ms at 16 kHz - same as main.py's CAPTURE_BLOCKSIZE
+BLOCK = 400       # 25 ms at 16 kHz - same as main.py's CAPTURE_BLOCKSIZE
 state = {"offset": None, "latency": None, "last_delivery": 0.0, "chunks": []}
 
 
@@ -27,7 +27,7 @@ def cb(indata, frames, ti, status):
         print("overflow:", status)
 
 
-stream = sd.InputStream(samplerate=SR, channels=1, dtype="float32", latency=1.0, blocksize=BLOCK, callback=cb)
+stream = sd.InputStream(samplerate=SR, channels=1, dtype="float32", latency=0.05, blocksize=BLOCK, callback=cb)
 stream.start()
 state["latency"] = float(getattr(stream, "latency", 0.0) or 0.0)
 print("actual stream latency:", state["latency"], flush=True)
@@ -60,7 +60,7 @@ for i in range(12):
 trials.sort()
 print(
     f"median {trials[len(trials)//2]*1e3:.1f} ms | min {trials[0]*1e3:.1f} ms | "
-    f"max {trials[-1]*1e3:.1f} ms  (effective cap before: 400 ms)"
+    f"max {trials[-1]*1e3:.1f} ms  (was 400 ms, then 200 ms at the 100 ms buffer)"
 )
 stream.stop()
 stream.close()

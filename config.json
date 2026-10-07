@@ -1,7 +1,12 @@
 {
   "offline": true,
   "model_resolver": {
-    "source_order": ["local", "cache", "mirror", "huggingface"],
+    "source_order": [
+      "local",
+      "cache",
+      "mirror",
+      "huggingface"
+    ],
     "cache_dir": "~/.cache/huggingface/hub",
     "mirror_url": null
   },
@@ -14,16 +19,32 @@
   "sound": true,
   "sound_theme": "message-chime",
   "history_enabled": true,
-  "history_hotkey": ["ctrl", "shift", "f11"],
-  "scratch_hotkey": ["ctrl", "shift", "f13"],
+  "history_hotkey": [
+    "ctrl",
+    "shift",
+    "f11"
+  ],
+  "scratch_hotkey": [
+    "ctrl",
+    "shift",
+    "f13"
+  ],
   "fuzzy_hotwords": true,
   "fuzzy_hotword_min_score": 85,
   "model_idle_unload_minutes": 10,
-  "paste_last_hotkey": ["ctrl", "shift", "f12"],
+  "paste_last_hotkey": [
+    "ctrl",
+    "shift",
+    "f12"
+  ],
   "profiles": [
     {
       "name": "EN",
-      "hotkey": ["ctrl", "shift", "space"],
+      "hotkey": [
+        "ctrl",
+        "shift",
+        "space"
+      ],
       "engine": "becker",
       "model": "C:\\Users\\Richard\\Documents\\Cursor_Projects\\llamacpp_becker_performant\\engine-rs\\models\\parakeet-v3-onnx",
       "language": "en",
@@ -39,7 +60,11 @@
     },
     {
       "name": "DE",
-      "hotkey": ["ctrl", "alt", "space"],
+      "hotkey": [
+        "ctrl",
+        "alt",
+        "space"
+      ],
       "engine": "nemotron",
       "model": "nvidia/nemotron-3.5-asr-streaming-0.6b",
       "model_revision": "ea30d66debe3740a08b573244286791d423d6b3e",
@@ -55,7 +80,11 @@
     },
     {
       "name": "EN-Parakeet",
-      "hotkey": ["ctrl", "shift", "z"],
+      "hotkey": [
+        "ctrl",
+        "shift",
+        "z"
+      ],
       "engine": "parakeet-gguf",
       "model": "mudler/parakeet-tdt-0.6b-v3-GGUF",
       "model_revision": "741158ae71e64ef5c89385862c18f777d07a97a1",
@@ -72,7 +101,11 @@
     },
     {
       "name": "DE-Parakeet",
-      "hotkey": ["ctrl", "alt", "z"],
+      "hotkey": [
+        "ctrl",
+        "alt",
+        "z"
+      ],
       "engine": "parakeet-gguf",
       "model": "mudler/nemotron-3.5-asr-streaming-0.6b-GGUF",
       "model_revision": "741158ae71e64ef5c89385862c18f777d07a97a1",
@@ -87,5 +120,6 @@
         "error": "Fehler"
       }
     }
-  ]
+  ],
+  "capture_latency_s": 0.05
 }
