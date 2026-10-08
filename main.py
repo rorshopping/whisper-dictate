@@ -757,6 +757,10 @@ CAPTURE_TAIL_DRAIN_S = 0.15
 CAPTURE_BLOCKSIZE = 400
 # Map from wall clock into PortAudio's stream clock, refreshed every callback.
 _capture_clock = {"last_delivery_wall": 0.0}
+# Per-utterance wall-clock timestamps, reset on each press. Lets the release ->
+# text budget be observed end to end instead of inferred from summed
+# microbenchmarks: "LATENCY <profile> release=... drain=... ... total=...".
+_LAT = {}
 # Actual negotiated input latency, set in main() once the stream is open.
 STREAM_LATENCY_S = 0.025
 # Set while a recording waits for its drain; lets a fast re-press finalize the
@@ -1215,6 +1219,8 @@ def start_recording(profile, command=False):
         frames.clear()
     recording["active"] = True
     recording["profile"] = profile
+    _LAT.clear()
+    _LAT["press"] = recording["started"]
     play_cue("start")
     show_state("listening", profile)
     if command:
@@ -1241,6 +1247,7 @@ def stop_recording():
     recording["release_wall"] = now
     recording["until"] = now + CAPTURE_TAIL_DRAIN_S
     recording["stopped"] = now
+    _LAT["release"] = now
     _pending["seq"] = recording["seq"]
     _pending["profile"] = profile
     _pending["command"] = command
@@ -1319,6 +1326,7 @@ def _transcribe_captured(profile, buf, command=False):
             "hold was lost to audio stalls (see overflow warnings above)"
         )
     log(f"[{profile.name}] Recording stopped, {len(buf)} chunks captured")
+    _LAT["finalize"] = time.time()
     if not buf:
         show_state("ready")
         return
@@ -1617,6 +1625,35 @@ def _model_idle_watchdog():
             )
 
 
+def _log_latency(profile):
+    """One line with the whole release -> text budget, from real timestamps.
+
+    Stages: release -> finalize (drain) -> ASR+postprocess done -> injected.
+    Anything without a stamp is skipped, so command-mode and error paths still
+    log what they reached. Offsets are cumulative from release.
+    """
+    lat = _LAT
+    if "release" not in lat:
+        return
+    ref = lat["release"]
+    total_end = lat.get("inject", lat.get("asr"))
+    if total_end is None:
+        return
+
+    def ms(key):
+        if key not in lat:
+            return None
+        return (lat[key] - ref) * 1e3
+
+    parts = [f"release2typed {(ms('inject') if ms('inject') is not None else ms('asr')):.0f}ms"]
+    for label, key in (("drain", "finalize"), ("asr", "asr"), ("inject", "inject")):
+        if key in lat:
+            parts.append(f"{label} {ms(key):.0f}ms")
+    if "press" in lat:
+        parts.append(f"hold {(lat.get('release') - lat['press']) * 1e3:.0f}ms")
+    log(f"LATENCY [{profile.name}] " + " ".join(parts))
+
+
 def transcribe_thread(profile, buf, command=False):
     global last_text, last_profile
     audio = None
@@ -1656,6 +1693,7 @@ def transcribe_thread(profile, buf, command=False):
         text = _smart_format(text, profile)
         done.set()
         duration = audio.size / cfg["samplerate"]
+        _LAT["asr"] = time.time()
         log(
             f"[{profile.name}] Transcribed {duration:.1f}s audio in {time.time()-t0:.1f}s"
         )
@@ -1704,6 +1742,7 @@ def transcribe_thread(profile, buf, command=False):
             pass
     finally:
         touch_model_use()
+        _log_latency(profile)
         show_state("ready")
 
 
@@ -1716,6 +1755,19 @@ def _type_keystrokes(text):
 
 
 def type_text(text):
+    """Inject text into the focused app, stamping the latency trace.
+
+    The wrapper exists so every exit path — clipboard paste, keystroke fallback,
+    or both failing — still records how long injection actually took.
+    """
+    _LAT["inject_start"] = time.time()
+    try:
+        _type_text_impl(text)
+    finally:
+        _LAT["inject"] = time.time()
+
+
+def _type_text_impl(text):
     global last_typed_text
     if cfg.get("type_newline"):
         text += "\n"
