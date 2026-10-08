@@ -145,9 +145,13 @@ class WindowsEngineDefaultsTests(unittest.TestCase):
             engines.add(profile["engine"])
             hotkeys.append("+".join(profile["hotkey"]))
             self.assertIn(profile["engine"], {"parakeet-gguf", "nemotron", "faster-whisper", "becker"})
-        # The torch engine stays available and the gguf engine is opt-in
-        # selectable in source checkouts; the packaged default flip happens
-        # only in the spec when the runtime is staged.
+        # The source checkout runs both profiles on the becker engine (int4
+        # model dirs, 2026-10-08 VRAM rewire); release builds flip back to the
+        # resolver-shipped engines via engine_defaults.json, which must keep
+        # the torch engine selectable for the packaged product.
+        for override in self.defaults.values():
+            if isinstance(override, dict) and "engine" in override:
+                engines.add(override["engine"])
         self.assertIn("nemotron", engines)
         self.assertEqual(len(hotkeys), len(set(hotkeys)))
 

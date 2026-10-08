@@ -661,3 +661,30 @@ modules resolved the repository from a hardcoded local checkout path and CI has
 no such directory. The failure was real and the fix (derive the root from
 `__file__`, as the rest of the suite does) is what CI exists for. Public source
 head `c7da16e` is green: https://github.com/rorshopping/whisper-dictate-community/actions/runs/36197494511
+## 2026-10-08: becker int4 VRAM rewire (EN + DE profiles, zero-VRAM idle)
+
+**Scope:** reduce the headless service's VRAM footprint: 0 MB when no model is
+loaded, minimal footprint while one is loaded. Both dictation profiles moved
+from fp32 becker / torch nemotron to int4-quantized becker model dirs.
+
+**Verified on this machine (RTX 2060 SUPER 8 GB, ORT 1.22 CUDA EP):**
+
+| Check | Result |
+|---|---|
+| fp32 becker EN (previous config), resident while loaded | 3368 MiB (matches the reported "3.3 GB") |
+| EN `parakeet-int4` loaded (auto fp16, arena tuned) | ~793 MiB steady state |
+| DE `nemotron35-int4` loaded | ~1.0 GiB steady state |
+| `unload_models()` after idle | VRAM returns to desktop baseline (272 MiB total incl. other apps); `dictate.log` records `becker: cudaDeviceReset - CUDA context released, 0 MB VRAM held` |
+| Reload after `cudaDeviceReset` | works (context re-created, correct transcription) |
+| EN int4 text agreement vs fp32 | 1.000 on 2 s / 11 s / 45 s dictation clips; 0.64 on the 112 s clip (tail loss on very long continuous audio) |
+| DE int4 German TTS clip (Hedda) | correct transcription with punctuation |
+| CPU-EP mode (`"device": "cpu"`, fp32 graphs) | correct transcription, zero GPU allocation; fp16 graphs do NOT run on the CPU EP (empty output) — forced off in that mode |
+| Headless end-to-end | `launcher.py --headless`: preload → model loaded; after `model_idle_unload_minutes` → unloaded, 0 MB held |
+| Test suite | 178 passed, 1 skipped, 55 subtests (`test_packaging.py` updated: bundled config is now becker/int4; release builds flip back to resolver engines via `engine_defaults.json` overrides keyed by the new model dirs) |
+
+**Known limitation:** sub-500 MB VRAM per loaded model is not reachable on the
+GPU for a 0.6B-parameter model: int4 MatMul weights (~270 MB) + fp16 conv stack
+(152 MB) + fp16 decoder (36 MB) + bare CUDA context (~90 MB) + ORT
+arena/workspace (~120-240 MB) floor out around ~0.6-0.8 GB. The zero-VRAM
+option (`"device": "cpu"`) is the only way strictly below 500 MB, at CPU
+latency.

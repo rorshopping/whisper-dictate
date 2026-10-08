@@ -46,7 +46,7 @@
         "space"
       ],
       "engine": "becker",
-      "model": "C:\\Users\\Richard\\Documents\\Cursor_Projects\\llamacpp_becker_performant\\engine-rs\\models\\parakeet-v3-onnx",
+      "model": "C:\\Users\\Richard\\Documents\\Cursor_Projects\\llamacpp_becker_performant\\engine-rs\\models\\parakeet-int4",
       "language": "en",
       "hotwords_file": "hotwords-en.txt",
       "corrections_file": "corrections-en.txt",
@@ -65,9 +65,8 @@
         "alt",
         "space"
       ],
-      "engine": "nemotron",
-      "model": "nvidia/nemotron-3.5-asr-streaming-0.6b",
-      "model_revision": "ea30d66debe3740a08b573244286791d423d6b3e",
+      "engine": "becker",
+      "model": "C:\\Users\\Richard\\Documents\\Cursor_Projects\\llamacpp_becker_performant\\engine-rs\\models\\nemotron35-int4",
       "language": "de",
       "hotwords_file": "hotwords-de.txt",
       "labels": {

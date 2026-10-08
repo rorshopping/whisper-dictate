@@ -92,10 +92,16 @@ class BeckerModel:
         log=None,
         *,
         language=None,
+        fp16=None,
         **_kwargs,
     ):
         self.model_id = os.fspath(model_id) if isinstance(model_id, os.PathLike) else model_id
         self._requested_language = language
+        # None = auto-detect from the model dir (fp16 whenever the dir ships
+        # the fp16 graphs - they are the parity-verified default, see
+        # becker-performant docs/RESULTS.md: agreement 1.000 everywhere,
+        # encoder 2x faster, half the weights in VRAM).
+        self.fp16 = fp16
         self._log = log or logging.getLogger(__name__).info
         self._lock = threading.Lock()
         self._ctx = None
@@ -147,6 +153,26 @@ class BeckerModel:
             candidate = os.path.join(dll_dir, "onnxruntime.dll")
             if os.path.isfile(candidate):
                 os.environ["ORT_DYLIB_PATH"] = candidate
+        # becker.dll reads BECKER_FP16/BECKER_CPU at load time. CPU mode runs
+        # the fp32 graphs only (the CPU EP cannot execute the fp16 graphs) and
+        # never creates a CUDA context - the zero-VRAM option, at CPU latency.
+        cpu_only = str(device).lower() == "cpu"
+        if cpu_only:
+            os.environ["BECKER_CPU"] = "1"
+        else:
+            os.environ.pop("BECKER_CPU", None)
+        # fp16 graphs (encoder-model.fp16.onnx / encoder.fp16.onnx) halve the
+        # resident weights on the CUDA EP. Loads are serialized by the
+        # caller's model lock, so the env vars cannot race a second load.
+        fp16 = self.fp16
+        if cpu_only:
+            fp16 = False
+        elif fp16 is None:
+            fp16 = os.path.isfile(os.path.join(self.model_dir, "encoder-model.fp16.onnx")) or (
+                os.path.isfile(os.path.join(self.model_dir, "encoder.fp16.onnx"))
+            )
+        self._fp16 = bool(fp16)
+        os.environ["BECKER_FP16"] = "1" if self._fp16 else "0"
         t0 = time.time()
         lib = ctypes.CDLL(dll_path)
         lib.becker_capi_abi_version.argtypes = []
@@ -184,7 +210,8 @@ class BeckerModel:
         # uses CUDA automatically when the GPU and runtime DLLs are reachable.
         self._log(
             f"Becker: '{self.model_dir}' ready via {os.path.basename(dll_path)} "
-            f"(ABI v{abi}, device={device}) in {time.time() - t0:.1f}s"
+            f"(ABI v{abi}, device={device}, fp16={'on' if self._fp16 else 'off'}) "
+            f"in {time.time() - t0:.1f}s"
         )
 
     # -- inference ---------------------------------------------------------
@@ -290,3 +317,41 @@ class BeckerModel:
             if self._ctx is not None:
                 self._lib.becker_capi_free(self._ctx)
                 self._ctx = None
+
+
+def _cuda_runtime_dll():
+    app_root = os.path.dirname(os.path.abspath(__file__))
+    for base in (
+        os.path.join(app_root, ".venv", "Lib", "site-packages", "nvidia"),
+        os.path.join(sys.prefix, "Lib", "site-packages", "nvidia"),
+    ):
+        candidate = os.path.join(base, "cuda_runtime", "bin", "cudart64_12.dll")
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def reset_cuda_device(log=None):
+    """Destroy the process-wide CUDA primary context once the last becker
+    session is freed, returning the ~90 MB the bare context holds.
+
+    Only call when nothing else in this process owns CUDA state (all becker
+    sessions closed; no torch model resident - torch keeps module-level
+    handles that would dangle after the reset). Safe no-op if the runtime
+    DLL is absent or no context exists.
+    """
+    dll = _cuda_runtime_dll()
+    if dll is None:
+        return False
+    try:
+        cudart = ctypes.CDLL(dll)
+        rc = cudart.cudaDeviceReset()
+    except OSError:
+        return False
+    if rc == 0:
+        if log:
+            log("becker: cudaDeviceReset - CUDA context released, 0 MB VRAM held")
+        return True
+    if log:
+        log(f"becker: cudaDeviceReset failed with CUDA error code {rc}")
+    return False

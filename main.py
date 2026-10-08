@@ -609,6 +609,11 @@ class Profile:
         # The full precedence rules (top-level model_resolver vs profile
         # overrides) are applied lazily by _nemotron_model_options().
         self.model_revision = p.get("model_revision", p.get("revision"))
+        # becker engine only: None = auto-detect fp16 graphs in the model dir.
+        self.fp16 = p.get("fp16")
+        # becker engine only: "cpu" runs the fp32 graphs on the CPU EP (no
+        # CUDA context, zero VRAM, CPU latency). Default: the global device.
+        self.device = p.get("device")
         self.hotwords_file = p.get("hotwords_file", "hotwords.txt")
         self.hotwords = load_hotwords(self.hotwords_file)
         # Canonical spellings for the fuzzy hotword pass
@@ -1551,15 +1556,17 @@ def get_model(profile):
                 elif profile.engine == "becker":
                     # becker-performant engine (Rust + ONNX Runtime): profile
                     # "model" is a prepared model directory (vocab.txt or
-                    # vocab.json), not a Hugging Face id.
+                    # vocab.json), not a Hugging Face id. "fp16" overrides the
+                    # auto-detection (fp16 whenever the dir ships fp16 graphs).
                     from becker_engine import BeckerModel
 
                     profile.model_obj = BeckerModel(
                         profile.model,
-                        device=DEVICE,
+                        device=getattr(profile, "device", None) or DEVICE,
                         compute_type=COMPUTE,
                         log=log,
                         language=getattr(profile, "language", None),
+                        fp16=getattr(profile, "fp16", None),
                     )
                 else:
                     from faster_whisper import WhisperModel
@@ -1632,6 +1639,18 @@ def unload_models():
                     except Exception as exc:
                         log(f"Releasing {p.model} failed: {exc}")
         if unloaded:
+            if "becker" in unloaded_engines and "nemotron" not in unloaded_engines:
+                # The freed ORT sessions return their buffers, but the CUDA
+                # primary context (~90 MB) stays resident until it is reset.
+                # Only safe when no engine with its own persistent CUDA state
+                # was part of this unload (torch keeps module-level handles
+                # that would dangle); everything else is closed by now.
+                try:
+                    import becker_engine
+
+                    becker_engine.reset_cuda_device(log)
+                except Exception as exc:
+                    log(f"CUDA context reset failed: {exc}")
             # Nemotron models hold VRAM; torch only returns it on request.
             torch = sys.modules.get("torch")
             if torch is not None:

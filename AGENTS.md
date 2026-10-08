@@ -67,18 +67,37 @@ in this environment.
 `origin/release/macos-1.1.0-verified` is a separate, unmerged remote branch.
 **Do not delete it.**
 
-## The becker engine (added 2026-10-07)
+## The becker engine (added 2026-10-07, int4 VRAM rewire 2026-10-08)
 
-The **EN profile (ctrl+shift+space)** runs the becker-performant engine
-(`engine: "becker"` in `config.json`) — a Rust + ONNX Runtime engine from the
-sibling project `C:\Users\Richard\Documents\Cursor_Projects\llamacpp_becker_performant`
+The **EN (ctrl+shift+space)** and **DE (ctrl+alt+space)** profiles both run the
+becker-performant engine (`engine: "becker"` in `config.json`) — a Rust + ONNX
+Runtime engine from the sibling project
+`C:\Users\Richard\Documents\Cursor_Projects\llamacpp_becker_performant`
 (7–12× faster than the previous transformers engine at equal accuracy,
 verified in that repo's `docs/RESULTS.md`).
+
+**VRAM (2026-10-08):** one loaded model holds ~0.8 GB (EN parakeet int4) /
+~1.0 GB (DE nemotron int4) instead of the previous 3.3 GB fp32 encoder; after
+the idle unload the process holds **0 MB VRAM** (`unload_models()` calls
+`becker_engine.reset_cuda_device()` → `cudaDeviceReset()`, which releases the
+~90 MB bare CUDA context ORT leaves behind). Verified end-to-end headless:
+preload → ~0.8 GB, idle unload → desktop baseline. Profile knobs: `"fp16"`
+(null = auto-detect fp16 graphs in the model dir), `"device": "cpu"` = zero-VRAM
+CPU-EP mode (fp32 graphs, CPU latency; set BECKER_CPU/BECKER_FP16 envs in
+`becker_engine.py`, read by becker.dll at load time).
 
 - App side: `becker_engine.py` (ctypes wrapper mirroring `parakeet_engine.py`'s
   API slice) + the `becker` branch in `main.py`'s model-load block. Profiles
   set `"model"` to a **prepared model directory** (contains `vocab.txt` or
   `vocab.json`), not a Hugging Face id — the resolver is bypassed.
+- Model dirs (sibling repo `engine-rs\models\`, gitignored there): EN uses
+  `parakeet-int4` (encoder MatMuls int4-quantized, convs fp16; built by
+  `bench\quantize_int4_stream.py parakeet` from `parakeet-fp16`), DE uses
+  `nemotron35-int4` (same tooling, `nemotron`). Agreements vs fp32: 1.000 on
+  ≤45 s dictation clips; int4 loses the tail of ~112 s continuous audio
+  (0.64 agreement there — split long monologues; dictation clips are fine).
+  fp32/fp16 sources stay in `parakeet-v3-onnx` / `parakeet-fp16` /
+  `nemotron35-onnx`. If the sibling repo moves, update `config.json`.
 - Runtime side: `packaging/becker-bin/` holds `becker.dll` (built by
   `engine-rs\build-msvc.bat` in the sibling repo; copy
   `engine-rs\target\release\becker.dll` there after rebuilding) plus
@@ -86,11 +105,11 @@ verified in that repo's `docs/RESULTS.md`).
   cuDNN/cuFFT/nvJitLink come from the app venv's pip `nvidia-*` wheels;
   `becker_engine.py` registers those directories and sets `ORT_DYLIB_PATH`
   itself. `packaging/becker-bin/` is gitignored.
-- The EN profile's model dir lives inside the sibling repo
-  (`engine-rs\models\parakeet-v3-onnx`, ~2.5 GB, gitignored there). If the
-  sibling repo moves, update `config.json`.
 - C ABI: `becker_capi_*` (v1) — load(model_dir, lang) / transcribe_pcm /
   free_string / free. `becker_engine.py` mirrors this; bump both together.
+  fp16/CPU selection and the CUDA-EP memory options (arena kSameAsRequested,
+  capped cuDNN conv workspace) are env-driven (`BECKER_FP16`, `BECKER_CPU`),
+  so the ABI did not change.
 
 ## Constraints
 
