@@ -9,14 +9,14 @@
     "DE Nemotron GGUF measured 2.5% word drift vs the torch engine (the GGUF",
     "bakes NeMo's default 240 ms lookahead instead of the 1.12 s setting the",
     "transformers engine uses), so release DE stays on the torch engine.",
-    "2026-10-08: both profiles run the becker engine on int4-quantized ONNX",
-    "model dirs (VRAM: 3.3 GB -> ~0.8 GB per loaded model; becker.dll and the",
-    "model dirs are source-checkout-only assets, never staged for release).",
-    "The overrides below keep release builds on the resolver-shipped engines:",
-    "a staged-runtime build flips EN back to the bundled parakeet GGUF and DE",
-    "back to the pinned torch Nemotron exactly as before."
+    "2026-10-08: the EN source profile runs the becker engine on CPU (zero",
+    "VRAM; the fp32 parakeet graphs run at RTF 0.034 on the CPU EP), DE stays",
+    "becker on the int4 GPU export (~1.0 GiB; the CPU EP needs 8.6 s per 10 s",
+    "clip - the streaming encoder pays 35 chunk passes). becker.dll and the",
+    "model dirs are source-checkout-only assets, never staged for release, so",
+    "the overrides keep release builds on the resolver-shipped engines:"
   ],
-  "C:\\Users\\Richard\\Documents\\Cursor_Projects\\llamacpp_becker_performant\\engine-rs\\models\\parakeet-int4": {
+  "C:\\Users\\Richard\\Documents\\Cursor_Projects\\llamacpp_becker_performant\\engine-rs\\models\\parakeet-v3-onnx": {
     "engine": "parakeet-gguf",
     "model": "mudler/parakeet-tdt-0.6b-v3-GGUF",
     "model_revision": "741158ae71e64ef5c89385862c18f777d07a97a1"

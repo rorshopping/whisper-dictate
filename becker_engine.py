@@ -46,6 +46,10 @@ _SPLIT_SEARCH_S = 30.0
 _DLL_NAME = "becker.dll" if sys.platform == "win32" else "libbecker.so"
 _MIN_ABI = 1
 
+# Set by _load once a CUDA-EP session exists; reset_cuda_device() is a no-op
+# until then (cpu-only profiles never create a context to reset).
+_cuda_ever_used = False
+
 
 class Segment:
     """Minimal faster-whisper Segment stand-in (only ``.text`` is used)."""
@@ -173,6 +177,8 @@ class BeckerModel:
             )
         self._fp16 = bool(fp16)
         os.environ["BECKER_FP16"] = "1" if self._fp16 else "0"
+        global _cuda_ever_used
+        _cuda_ever_used = _cuda_ever_used or not cpu_only
         t0 = time.time()
         lib = ctypes.CDLL(dll_path)
         lib.becker_capi_abi_version.argtypes = []
@@ -337,9 +343,11 @@ def reset_cuda_device(log=None):
 
     Only call when nothing else in this process owns CUDA state (all becker
     sessions closed; no torch model resident - torch keeps module-level
-    handles that would dangle after the reset). Safe no-op if the runtime
-    DLL is absent or no context exists.
+    handles that would dangle after the reset). No-op when no CUDA-EP session
+    was ever loaded (cpu-only profiles).
     """
+    if not _cuda_ever_used:
+        return False
     dll = _cuda_runtime_dll()
     if dll is None:
         return False

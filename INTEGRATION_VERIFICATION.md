@@ -688,3 +688,30 @@ GPU for a 0.6B-parameter model: int4 MatMul weights (~270 MB) + fp16 conv stack
 arena/workspace (~120-240 MB) floor out around ~0.6-0.8 GB. The zero-VRAM
 option (`"device": "cpu"`) is the only way strictly below 500 MB, at CPU
 latency.
+### Final active configuration (same day, after the <500 MB investigation)
+
+The <500 MB-per-loaded-model target was investigated empirically and is **not
+reachable on the GPU** for this model:
+
+- Conv-int8 (QLinearConv) could not be built: ORT's static quantizer
+  re-serializes the 2.4 GB fp32 encoder proto during calibration and dies at
+  protobuf's 2 GiB limit (same blocker as the fp16 conversion), and the fp16
+  graph cannot carry opset<21 QDQ nodes. Even granting conv-int8 its
+  theoretical ~76 MB saving, the floor stays above 500.
+- Measured resident VRAM across the three real configurations is linear in
+  weights: fp32 2513 MB -> 3368 MiB, fp16 1255 MB -> 2250 MiB, int4 463 MB ->
+  793 MiB; fit: VRAM = 1.26 x weights + 191 MiB (context + ORT pools). A
+  sub-500 MiB session would need <=246 MB of weights; the int4 MatMuls alone
+  are 266 MB. GPU <500 MiB is arithmetically closed off.
+- CPU EP measurements: fp32 parakeet 0.37 s for the 11 s clip (RTF 0.034,
+  correct text) - usable; fp32 nemotron (streaming, 35 chunk passes/clip)
+  8.6 s for a 10 s clip (RTF 0.87) - unusable; fp16 and int4 graphs produce
+  silent empty output on the CPU EP.
+
+Active config after this: EN = becker parakeet fp32 on the CPU EP
+(`"device": "cpu"` -> 0 MB VRAM while loaded, verified headless: VRAM flat at
+the desktop baseline through load and idle unload, `device=cpu` in the log);
+DE = becker nemotron int4 on the GPU (~1.0 GiB, documented exception - CPU is
+unusable for the streaming encoder). Verified German TTS clip transcribes
+correctly in both modes.
+

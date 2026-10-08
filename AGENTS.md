@@ -76,28 +76,37 @@ Runtime engine from the sibling project
 (7–12× faster than the previous transformers engine at equal accuracy,
 verified in that repo's `docs/RESULTS.md`).
 
-**VRAM (2026-10-08):** one loaded model holds ~0.8 GB (EN parakeet int4) /
-~1.0 GB (DE nemotron int4) instead of the previous 3.3 GB fp32 encoder; after
-the idle unload the process holds **0 MB VRAM** (`unload_models()` calls
-`becker_engine.reset_cuda_device()` → `cudaDeviceReset()`, which releases the
-~90 MB bare CUDA context ORT leaves behind). Verified end-to-end headless:
-preload → ~0.8 GB, idle unload → desktop baseline. Profile knobs: `"fp16"`
-(null = auto-detect fp16 graphs in the model dir), `"device": "cpu"` = zero-VRAM
-CPU-EP mode (fp32 graphs, CPU latency; set BECKER_CPU/BECKER_FP16 envs in
-`becker_engine.py`, read by becker.dll at load time).
+**VRAM (2026-10-08, final state):** the **EN profile runs on the CPU EP**
+(`"device": "cpu"` → BECKER_CPU=1, fp32 graphs): a loaded model holds **0 MB
+VRAM** by construction, at CPU latency (fp32 parakeet: RTF 0.034, ~0.37 s for
+an 11 s clip). Rationale: the GPU floor for this model is ~600-790 MiB —
+measured across fp32/fp16/int4 configs, resident VRAM ≈ 1.26 × weights (MiB)
++ 191 MiB fixed (CUDA context + ORT pools), so <500 MiB would need ≤246 MB of
+weights while the int4 MatMuls alone are 266 MB. The **DE profile stays on the
+GPU int4 export** (`nemotron35-int4`, ~1.0 GiB) because the streaming encoder
+pays 35 chunk passes per clip on CPU: measured **8.6 s ASR for a 10 s clip**
+(RTF 0.87) — unusable. Note the fp16 and int4 graphs do NOT execute on the
+CPU EP (silent empty output); CPU mode forces the fp32 graphs. After the idle
+unload the process holds 0 MB (`unload_models()` →
+`becker_engine.reset_cuda_device()` → `cudaDeviceReset()`; skipped when only
+cpu profiles ever loaded). Profile knobs: `"fp16"` (null = auto-detect fp16
+graphs in the dir), `"device": "cpu"` / default GPU. To give EN its GPU back:
+remove `"device": "cpu"` and point it at `parakeet-int4` (~793 MiB, int4).
 
 - App side: `becker_engine.py` (ctypes wrapper mirroring `parakeet_engine.py`'s
   API slice) + the `becker` branch in `main.py`'s model-load block. Profiles
   set `"model"` to a **prepared model directory** (contains `vocab.txt` or
   `vocab.json`), not a Hugging Face id — the resolver is bypassed.
 - Model dirs (sibling repo `engine-rs\models\`, gitignored there): EN uses
-  `parakeet-int4` (encoder MatMuls int4-quantized, convs fp16; built by
-  `bench\quantize_int4_stream.py parakeet` from `parakeet-fp16`), DE uses
-  `nemotron35-int4` (same tooling, `nemotron`). Agreements vs fp32: 1.000 on
-  ≤45 s dictation clips; int4 loses the tail of ~112 s continuous audio
-  (0.64 agreement there — split long monologues; dictation clips are fine).
-  fp32/fp16 sources stay in `parakeet-v3-onnx` / `parakeet-fp16` /
-  `nemotron35-onnx`. If the sibling repo moves, update `config.json`.
+  `parakeet-v3-onnx` (fp32 graphs, CPU mode), DE uses `nemotron35-int4`
+  (encoder MatMuls int4-quantized, convs fp16; built by
+  `bench\quantize_int4_stream.py nemotron` from `nemotron35-onnx`). For the
+  GPU EN flip: `parakeet-int4` (from `parakeet-fp16`, same tooling).
+  Agreements vs fp32: 1.000 on ≤45 s dictation clips; int4 loses the tail of
+  ~112 s continuous audio (0.64 agreement there — split long monologues;
+  dictation clips are fine). fp32/fp16 sources stay in `parakeet-v3-onnx` /
+  `parakeet-fp16` / `nemotron35-onnx`. If the sibling repo moves, update
+  `config.json`.
 - Runtime side: `packaging/becker-bin/` holds `becker.dll` (built by
   `engine-rs\build-msvc.bat` in the sibling repo; copy
   `engine-rs\target\release\becker.dll` there after rebuilding) plus
