@@ -99,3 +99,36 @@ class CorrectionCompileTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProfileAccessorContractTests(unittest.TestCase):
+    """corrections_compiled / snippets_compiled must be subscriptable values.
+
+    Regression: the per-profile compile cache was introduced as plain methods
+    while every call site kept attribute access, so apply_corrections() got a
+    bound method and every dictation died with "'method' object is not
+    subscriptable" (2026-10-08). Pin the property contract end to end.
+    """
+
+    def test_profile_accessors_are_property_values(self):
+        p = m.Profile(0, {"name": "T", "model": "x", "language": "en"})
+        for accessor, raw in (
+            (p.corrections_compiled, p.corrections),
+            (p.snippets_compiled, p.snippets),
+        ):
+            self.assertIsInstance(accessor, tuple)
+            if raw:
+                self.assertTrue(
+                    hasattr(accessor[0][0], "pattern"),
+                    "expected (pattern, repl) tuples",
+                )
+        self.assertIs(p.corrections_compiled, p.corrections_compiled,
+                      "cache must return the same compiled tuple")
+
+    def test_transcribe_path_call_works_end_to_end(self):
+        p = m.Profile(0, {"name": "T", "model": "x", "language": "en"})
+        p.corrections = [("test sentence", "pinned sentence")]
+        p._corrections_compiled = None
+        text = m.apply_corrections("this is a test sentence here",
+                                   p.corrections_compiled)
+        self.assertEqual(text, "this is a pinned sentence here")

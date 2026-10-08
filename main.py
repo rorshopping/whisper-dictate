@@ -643,12 +643,14 @@ class Profile:
         self.labels = p.get("labels", {})
         self.model_obj = None
 
+    @property
     def corrections_compiled(self):
         """Compiled correction patterns, cached until the file reloads."""
         if self._corrections_compiled is None:
             self._corrections_compiled = _compile_corrections(self.corrections)
         return self._corrections_compiled
 
+    @property
     def snippets_compiled(self):
         """Compiled snippet patterns, cached until the file reloads."""
         if self._snippets_compiled is None:
