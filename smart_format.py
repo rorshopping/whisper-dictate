@@ -108,12 +108,27 @@ def _backtrack(text, lang, log=None):
     return text[best[1]:]
 
 
+# The filler alternation depends only on the language, so it is built once per
+# language instead of on every utterance. The old per-call re.compile() was
+# only cheap because re's internal cache swallowed it.
+_FILLER_RX = {}
+
+
+def _fillers_rx(lang):
+    rx = _FILLER_RX.get(lang)
+    if rx is None:
+        rx = re.compile(
+            r"\b("
+            + "|".join(sorted(map(re.escape, FILLERS[lang]), key=len, reverse=True))
+            + r")\b",
+            re.IGNORECASE,
+        )
+        _FILLER_RX[lang] = rx
+    return rx
+
+
 def _remove_fillers(text, lang):
-    filler_rx = re.compile(
-        r"\b(" + "|".join(sorted(map(re.escape, FILLERS[lang]), key=len, reverse=True)) + r")\b",
-        re.IGNORECASE,
-    )
-    return filler_rx.sub("", text)
+    return _fillers_rx(lang).sub("", text)
 
 
 def _replace_phrases(text, compiled):

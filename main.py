@@ -409,17 +409,45 @@ def load_corrections(path):
     return pairs
 
 
-def apply_corrections(text, corrections):
-    """Deterministic replacement: case-insensitive, word-boundary aware."""
-    for wrong, correct in corrections or []:
+def _compile_corrections(pairs):
+    """Pre-compile correction/snippet pairs into (pattern, replacement) forms.
+
+    Compiled once per profile instead of per utterance: apply_corrections()
+    used to run re.compile() for every pair on every dictation. Keyed by the
+    tuple of pairs so reload_hotwords() (which rebuilds the lists) invalidates
+    correctly without any manual bookkeeping.
+    """
+    compiled = []
+    for wrong, correct in pairs or []:
+        # _repl closes over `correct` via the default arg so the late-binding
+        # loop variable does not turn every replacement into the last one.
         def _repl(m, correct=correct):
             s = m.group(0)
             if s and s[0].isupper() and correct:
                 return correct[0].upper() + correct[1:]
             return correct
-        text = re.sub(
-            r"\b" + re.escape(wrong) + r"\b", _repl, text, flags=re.IGNORECASE
+
+        compiled.append(
+            (re.compile(r"\b" + re.escape(wrong) + r"\b", re.IGNORECASE), _repl)
         )
+    return tuple(compiled)
+
+
+def apply_corrections(text, corrections):
+    """Deterministic replacement: case-insensitive, word-boundary aware.
+
+    `corrections` is either a profile's compiled tuple or a raw pair list, so
+    callers that still hold raw pairs (embedders, tests) keep working.
+    """
+    if not corrections:
+        return text
+    compiled = (
+        corrections if isinstance(corrections[0], tuple) and len(corrections[0]) == 2
+        and hasattr(corrections[0][0], "pattern")
+        else _compile_corrections(list(corrections))
+    )
+    for pattern, _repl in compiled:
+        text = pattern.sub(_repl, text)
     return text
 
 
@@ -479,7 +507,7 @@ def _expand_snippets(text, profile):
     case-insensitively on whole words."""
     if not text or not cfg.get("voice_shortcuts", True) or not profile.snippets:
         return text
-    return apply_corrections(text, profile.snippets)
+    return apply_corrections(text, profile.snippets_compiled)
 
 
 def _smart_format(text, profile):
@@ -597,6 +625,10 @@ class Profile:
         # merged with a gitignored snippets-*.local.txt for personal text.
         self.snippets_file = p.get("snippets_file") or f"snippets-{self.language}.txt"
         self.snippets = load_corrections(self.snippets_file)
+        # Regexes for the two lists above, compiled once here instead of on
+        # every utterance. reload_hotwords() recompiles; nothing else knows.
+        self._corrections_compiled = None
+        self._snippets_compiled = None
         # No initial_prompt on purpose: Whisper's prompt slot means "already
         # transcribed text", not instructions. An instruction prefix (plus the
         # hotword list) made the model echo prompt words instead of
@@ -605,6 +637,18 @@ class Profile:
         # alone biases the vocabulary with a single, size-capped copy.
         self.labels = p.get("labels", {})
         self.model_obj = None
+
+    def corrections_compiled(self):
+        """Compiled correction patterns, cached until the file reloads."""
+        if self._corrections_compiled is None:
+            self._corrections_compiled = _compile_corrections(self.corrections)
+        return self._corrections_compiled
+
+    def snippets_compiled(self):
+        """Compiled snippet patterns, cached until the file reloads."""
+        if self._snippets_compiled is None:
+            self._snippets_compiled = _compile_corrections(self.snippets)
+        return self._snippets_compiled
 
     def hotkey_str(self):
         return "+".join(_display_key(k) for k in self.hotkey)
@@ -1571,11 +1615,13 @@ def unload_models():
     an unload during inference is safe - the memory is freed once it finishes.
     """
     unloaded = []
+    unloaded_engines = set()
     with model_lock:
         for p in profiles:
             if p.model_obj is not None:
                 obj, p.model_obj = p.model_obj, None
                 unloaded.append(p.model)
+                unloaded_engines.add(p.engine)
                 # Engines with an explicit release (parakeet.cpp frees its GGML
                 # buffers deterministically) drop their memory right here;
                 # torch-backed models rely on GC plus the empty_cache below.
@@ -1687,7 +1733,9 @@ def transcribe_thread(profile, buf, command=False):
             condition_on_previous_text=False,
         )
         parts = [seg.text.strip() for seg in segments]
-        text = apply_corrections(" ".join(parts).strip(), profile.corrections)
+        text = apply_corrections(
+            " ".join(parts).strip(), profile.corrections_compiled
+        )
         text = _reconcile_hotwords(text, profile)
         text = _expand_snippets(text, profile)
         text = _smart_format(text, profile)
@@ -1866,6 +1914,10 @@ def reload_hotwords(icon=None):
         p.hotword_list = load_hotword_list(p.hotwords_file)
         p.corrections = load_corrections(p.corrections_file)
         p.snippets = load_corrections(p.snippets_file)
+        # The compiled regexes are cached on the profile, so they must be
+        # dropped here or the next dictation would use the old spellings.
+        p._corrections_compiled = None
+        p._snippets_compiled = None
     log("Hotwords, corrections and snippets reloaded")
     if icon:
         icon.notify("Hotwords, corrections and snippets reloaded", APP_NAME)

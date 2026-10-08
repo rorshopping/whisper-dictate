@@ -21,6 +21,17 @@ import main as app
 
 HISTORY_FILE = app_paths.history_path()
 _HISTORY_LOCK = threading.Lock()
+# The history directory is created once at startup rather than on every
+# append: os.makedirs(exist_ok=True) still costs a syscall per utterance.
+_HISTORY_DIR = os.path.dirname(HISTORY_FILE) or "."
+# Same rotation policy as dictate.log (_RotatingLog in main.py): the history
+# file used to grow without bound.
+HISTORY_MAX_BYTES = 2 * 1024 * 1024
+HISTORY_BACKUPS = 2
+try:
+    os.makedirs(_HISTORY_DIR, exist_ok=True)
+except Exception as _exc:  # pragma: no cover - read-only data dir
+    pass
 
 
 def _history_hotkey():
@@ -29,6 +40,29 @@ def _history_hotkey():
 
 def _history_enabled():
     return bool(app.cfg.get("history_enabled", True))
+
+
+def _rotate_if_oversized():
+    """Keep one .1 backup when the history file grows past the cap.
+
+    Plain rename, not a live file handle: the file is opened per append so the
+    next append simply creates a fresh one.
+    """
+    try:
+        if not os.path.exists(HISTORY_FILE):
+            return
+        if os.path.getsize(HISTORY_FILE) < HISTORY_MAX_BYTES:
+            return
+        oldest = f"{HISTORY_FILE}.{HISTORY_BACKUPS}"
+        if os.path.exists(oldest):
+            os.remove(oldest)
+        for i in range(HISTORY_BACKUPS - 1, 0, -1):
+            src = f"{HISTORY_FILE}.{i}"
+            if os.path.exists(src):
+                os.replace(src, f"{HISTORY_FILE}.{i + 1}")
+        os.replace(HISTORY_FILE, f"{HISTORY_FILE}.1")
+    except Exception as exc:
+        app.log(f"History rotation failed: {exc}")
 
 
 def save_history(profile, text, duration_s):
@@ -45,7 +79,9 @@ def save_history(profile, text, duration_s):
     }
     try:
         with _HISTORY_LOCK:
-            os.makedirs(os.path.dirname(HISTORY_FILE) or ".", exist_ok=True)
+            _rotate_if_oversized()
+            # Directory already exists (made at import), so this is a single
+            # append instead of a makedirs syscall per utterance.
             with open(HISTORY_FILE, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
     except Exception as exc:
@@ -54,7 +90,7 @@ def save_history(profile, text, duration_s):
 
 def open_history():
     try:
-        os.makedirs(os.path.dirname(HISTORY_FILE) or ".", exist_ok=True)
+        os.makedirs(_HISTORY_DIR, exist_ok=True)
         if not os.path.exists(HISTORY_FILE):
             with open(HISTORY_FILE, "a", encoding="utf-8"):
                 pass
