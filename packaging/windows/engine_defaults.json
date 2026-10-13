@@ -14,9 +14,17 @@
     "becker on the int4 GPU export (~1.0 GiB; the CPU EP needs 8.6 s per 10 s",
     "clip - the streaming encoder pays 35 chunk passes). becker.dll and the",
     "model dirs are source-checkout-only assets, never staged for release, so",
-    "the overrides keep release builds on the resolver-shipped engines:"
+    "the overrides keep release builds on the resolver-shipped engines:",
+    "2026-10-13: the EN source profile switched to FluidVoice fluid-speech",
+    "mini (becker FluidTdt on the CPU EP; 100% text parity with the reference",
+    "ONNX script on the bench corpus, ~4.5% avg WER vs parakeet's 4.9%, 302",
+    "MB on disk, same zero-VRAM posture). The CUDA EP silently returns empty",
+    "text for its 2-bit MatMulNBits graphs, so EN must stay on CPU. Release",
+    "builds still ship the resolver engines (parakeet.cpp for EN). The former",
+    "parakeet-v3-onnx override entry was removed with the switch - overrides",
+    "must target a current profile model (tests/test_packaging.py guards this):"
   ],
-  "C:\\Users\\Richard\\Documents\\Cursor_Projects\\llamacpp_becker_performant\\engine-rs\\models\\parakeet-v3-onnx": {
+  "C:\\Users\\Richard\\Documents\\Cursor_Projects\\llamacpp_becker_performant\\engine-rs\\models\\fluid-speech-mini-onnx": {
     "engine": "parakeet-gguf",
     "model": "mudler/parakeet-tdt-0.6b-v3-GGUF",
     "model_revision": "741158ae71e64ef5c89385862c18f777d07a97a1"

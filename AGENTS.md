@@ -67,7 +67,7 @@ in this environment.
 `origin/release/macos-1.1.0-verified` is a separate, unmerged remote branch.
 **Do not delete it.**
 
-## The becker engine (added 2026-10-07, int4 VRAM rewire 2026-10-08)
+## The becker engine (added 2026-10-07, int4 VRAM rewire 2026-10-08, fluid-speech-mini EN 2026-10-13)
 
 The **EN (ctrl+shift+space)** and **DE (ctrl+alt+space)** profiles both run the
 becker-performant engine (`engine: "becker"` in `config.json`) — a Rust + ONNX
@@ -76,44 +76,52 @@ Runtime engine from the sibling project
 (7–12× faster than the previous transformers engine at equal accuracy,
 verified in that repo's `docs/RESULTS.md`).
 
-**VRAM (2026-10-08, final state):** the **EN profile runs on the CPU EP**
-(`"device": "cpu"` → BECKER_CPU=1, fp32 graphs): a loaded model holds **0 MB
-VRAM** by construction, at CPU latency (fp32 parakeet: RTF 0.034, ~0.37 s for
-an 11 s clip). Rationale: the GPU floor for this model is ~600-790 MiB —
-measured across fp32/fp16/int4 configs, resident VRAM ≈ 1.26 × weights (MiB)
-+ 191 MiB fixed (CUDA context + ORT pools), so <500 MiB would need ≤246 MB of
-weights while the int4 MatMuls alone are 266 MB. The **DE profile stays on the
-GPU int4 export** (`nemotron35-int4`, ~1.0 GiB) because the streaming encoder
-pays 35 chunk passes per clip on CPU: measured **8.6 s ASR for a 10 s clip**
-(RTF 0.87) — unusable. Note the fp16 and int4 graphs do NOT execute on the
-CPU EP (silent empty output); CPU mode forces the fp32 graphs. After the idle
-unload the process holds 0 MB (`unload_models()` →
-`becker_engine.reset_cuda_device()` → `cudaDeviceReset()`; skipped when only
-cpu profiles ever loaded). Profile knobs: `"fp16"` (null = auto-detect fp16
-graphs in the dir), `"device": "cpu"` / default GPU. To give EN its GPU back:
-remove `"device": "cpu"` and point it at `parakeet-int4` (~793 MiB, int4).
+**VRAM (2026-10-13 state):** the **EN profile runs on the CPU EP**
+(`"device": "cpu"` → BECKER_CPU=1): a loaded model holds **0 MB VRAM** by
+construction. Since 2026-10-13 EN runs **FluidVoice fluid-speech-mini**
+(becker-asr `FluidTdt`): 302 MB on disk, ~4.53% avg WER vs parakeet-v3's
+4.86%, far better on background speech (SVQ 11.1% vs 20.4%), and 100% text
+parity between the Rust engine and FluidVoice's reference `transcribe.py` on
+the 6-clip bench corpus (incl. 4x/10x repetition long clips). CPU latency:
+~0.42–0.75 s for 2–13.5 s dictation, RTF 0.046 on 112 s (fp32 parakeet was
+~0.12–0.57 s; mini pays a ~0.4 s fixed encoder overhead, so short clips are
+~2–3x slower — both are sub-second). **Do not put mini on the CUDA EP**: its
+2-bit MatMulNBits graphs silently return *empty text* on GPU (verified on ORT
+1.28), and the CPU EP is the zero-VRAM posture anyway. The **DE profile stays
+on the GPU int4 export** (`nemotron35-int4`, ~1.0 GiB; its CPU EP needs 8.6 s
+per 10 s clip — 35 streaming chunk passes). After the idle unload the process
+holds 0 MB (`unload_models()` → `becker_engine.reset_cuda_device()` →
+`cudaDeviceReset()`; skipped when only cpu profiles ever loaded). Profile
+knobs: `"fp16"` (null = auto-detect fp16 graphs), `"device": "cpu"` / default
+GPU. Reverting EN to parakeet: point the profile back at `parakeet-v3-onnx`
+(still prepared) and keep `"device": "cpu"`.
 
 - App side: `becker_engine.py` (ctypes wrapper mirroring `parakeet_engine.py`'s
   API slice) + the `becker` branch in `main.py`'s model-load block. Profiles
   set `"model"` to a **prepared model directory** (contains `vocab.txt` or
   `vocab.json`), not a Hugging Face id — the resolver is bypassed.
 - Model dirs (sibling repo `engine-rs\models\`, gitignored there): EN uses
-  `parakeet-v3-onnx` (fp32 graphs, CPU mode), DE uses `nemotron35-int4`
-  (encoder MatMuls int4-quantized, convs fp16; built by
-  `bench\quantize_int4_stream.py nemotron` from `nemotron35-onnx`). For the
-  GPU EN flip: `parakeet-int4` (from `parakeet-fp16`, same tooling).
-  Agreements vs fp32: 1.000 on ≤45 s dictation clips; int4 loses the tail of
-  ~112 s continuous audio (0.64 agreement there — split long monologues;
-  dictation clips are fine). fp32/fp16 sources stay in `parakeet-v3-onnx` /
-  `parakeet-fp16` / `nemotron35-onnx`. If the sibling repo moves, update
-  `config.json`.
+  `fluid-speech-mini-onnx` — FluidVoice-Labs' HF download of the ONNX port
+  plus raw assets generated once by the sibling repo's
+  `bench\prepare_fluid_mini.py` (`vocab.txt` derived from tokenizer.json,
+  `mel_fbanks_257x128.f32` from mel_filters.npy, `hann512_fluid.f32`). The
+  becker-asr family auto-detects it by `encoder.onnx` being present without
+  `vocab.json`. DE uses `nemotron35-int4` (encoder MatMuls int4-quantized,
+  convs fp16; built by `bench\quantize_int4_stream.py nemotron` from
+  `nemotron35-onnx`). `parakeet-v3-onnx` (fp32) stays prepared as the EN
+  fallback — note parakeet int4 loses the tail of ~112 s continuous audio
+  (0.64 agreement), while fluid-speech-mini transcribes all 10 repetitions of
+  that clip correctly. If the sibling repo moves, update `config.json`.
 - Runtime side: `packaging/becker-bin/` holds `becker.dll` (built by
   `engine-rs\build-msvc.bat` in the sibling repo; copy
   `engine-rs\target\release\becker.dll` there after rebuilding) plus
-  `onnxruntime.dll` + `onnxruntime_providers_*.dll` (ORT 1.22, CUDA 12).
-  cuDNN/cuFFT/nvJitLink come from the app venv's pip `nvidia-*` wheels;
-  `becker_engine.py` registers those directories and sets `ORT_DYLIB_PATH`
-  itself. `packaging/becker-bin/` is gitignored.
+  `onnxruntime.dll` + `onnxruntime_providers_*.dll` (ORT **1.28.0** GPU build
+  since 2026-10-13 — fluid's 2-bit MatMulNBits CPU kernels need ≥1.28, the
+  bundled 1.22 only did 4b/8b; the old set is kept in `ort-1.22-backup/`;
+  nemotron int4 verified byte-identical on 1.28). cuDNN/cuFFT/nvJitLink come
+  from the app venv's pip `nvidia-*` wheels; `becker_engine.py` registers
+  those directories and sets `ORT_DYLIB_PATH` itself. `packaging/becker-bin/`
+  is gitignored.
 - C ABI: `becker_capi_*` (v1) — load(model_dir, lang) / transcribe_pcm /
   free_string / free. `becker_engine.py` mirrors this; bump both together.
   fp16/CPU selection and the CUDA-EP memory options (arena kSameAsRequested,

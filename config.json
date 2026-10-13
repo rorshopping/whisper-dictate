@@ -46,7 +46,7 @@
         "space"
       ],
       "engine": "becker",
-      "model": "C:\\Users\\Richard\\Documents\\Cursor_Projects\\llamacpp_becker_performant\\engine-rs\\models\\parakeet-v3-onnx",
+      "model": "C:\\Users\\Richard\\Documents\\Cursor_Projects\\llamacpp_becker_performant\\engine-rs\\models\\fluid-speech-mini-onnx",
       "device": "cpu",
       "language": "en",
       "hotwords_file": "hotwords-en.txt",
