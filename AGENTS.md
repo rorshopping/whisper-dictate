@@ -50,8 +50,8 @@ Environment notes:
   (`windows/WhisperDictate.iss`, `macos/build_signed_dmg.sh`).
 - `community-site/` is a separate static site with its own validators and
   tests; a site change is not an app change.
-- `INTEGRATION_VERIFICATION.md` and the `NOTES_*.md` files record what was
-  actually verified. Read them before claiming a release path works.
+- `docs/INTEGRATION_VERIFICATION.md` and the `docs/NOTES_*.md` files record what
+  was actually verified. Read them before claiming a release path works.
 
 ## Git state (2026-09-30)
 
@@ -67,7 +67,7 @@ in this environment.
 `origin/release/macos-1.1.0-verified` is a separate, unmerged remote branch.
 **Do not delete it.**
 
-## The becker engine (added 2026-10-07, int4 VRAM rewire 2026-10-08, fluid-speech-mini EN 2026-10-13)
+## The becker engine (added 2026-10-07, int4 VRAM rewire 2026-10-08, fluid-speech-mini EN 2026-10-13, parakeet-v3 DE 2026-10-24)
 
 The **EN (ctrl+shift+space)** and **DE (ctrl+alt+space)** profiles both run the
 becker-performant engine (`engine: "becker"` in `config.json`) — a Rust + ONNX
@@ -76,7 +76,7 @@ Runtime engine from the sibling project
 (7–12× faster than the previous transformers engine at equal accuracy,
 verified in that repo's `docs/RESULTS.md`).
 
-**VRAM (2026-10-13 state):** the **EN profile runs on the CPU EP**
+**VRAM (2026-10-24 state):** **both profiles run on the CPU EP**
 (`"device": "cpu"` → BECKER_CPU=1): a loaded model holds **0 MB VRAM** by
 construction. Since 2026-10-13 EN runs **FluidVoice fluid-speech-mini**
 (becker-asr `FluidTdt`): 302 MB on disk, ~4.53% avg WER vs parakeet-v3's
@@ -87,14 +87,17 @@ the 6-clip bench corpus (incl. 4x/10x repetition long clips). CPU latency:
 ~0.12–0.57 s; mini pays a ~0.4 s fixed encoder overhead, so short clips are
 ~2–3x slower — both are sub-second). **Do not put mini on the CUDA EP**: its
 2-bit MatMulNBits graphs silently return *empty text* on GPU (verified on ORT
-1.28), and the CPU EP is the zero-VRAM posture anyway. The **DE profile stays
-on the GPU int4 export** (`nemotron35-int4`, ~1.0 GiB; its CPU EP needs 8.6 s
-per 10 s clip — 35 streaming chunk passes). After the idle unload the process
+1.28), and the CPU EP is the zero-VRAM posture anyway. Since 2026-10-24 the
+**DE profile runs `parakeet-v3-onnx` on the CPU EP** too (bench on the 4-clip
+de parity corpus, TTS dictation audio: ~4.2% WER vs nemotron35-int4's 7.4%,
+every clip faster — RTF 0.044 vs 0.071 — and 0 MB VRAM instead of 644 MiB;
+model cards: German FLEURS ~5.0% vs nemotron's 8.2–9.8%). `nemotron35-int4`
+stays on disk as the GPU fallback. After the idle unload the process
 holds 0 MB (`unload_models()` → `becker_engine.reset_cuda_device()` →
 `cudaDeviceReset()`; skipped when only cpu profiles ever loaded). Profile
 knobs: `"fp16"` (null = auto-detect fp16 graphs), `"device": "cpu"` / default
-GPU. Reverting EN to parakeet: point the profile back at `parakeet-v3-onnx`
-(still prepared) and keep `"device": "cpu"`.
+GPU. Reverting EN to parakeet: point the EN profile back at `parakeet-v3-onnx`
+(the same dir the DE profile uses) and keep `"device": "cpu"`.
 
 - App side: `becker_engine.py` (ctypes wrapper mirroring `parakeet_engine.py`'s
   API slice) + the `becker` branch in `main.py`'s model-load block. Profiles
@@ -106,12 +109,16 @@ GPU. Reverting EN to parakeet: point the profile back at `parakeet-v3-onnx`
   `bench\prepare_fluid_mini.py` (`vocab.txt` derived from tokenizer.json,
   `mel_fbanks_257x128.f32` from mel_filters.npy, `hann512_fluid.f32`). The
   becker-asr family auto-detects it by `encoder.onnx` being present without
-  `vocab.json`. DE uses `nemotron35-int4` (encoder MatMuls int4-quantized,
-  convs fp16; built by `bench\quantize_int4_stream.py nemotron` from
-  `nemotron35-onnx`). `parakeet-v3-onnx` (fp32) stays prepared as the EN
-  fallback — note parakeet int4 loses the tail of ~112 s continuous audio
-  (0.64 agreement), while fluid-speech-mini transcribes all 10 repetitions of
-  that clip correctly. If the sibling repo moves, update `config.json`.
+  `vocab.json`. DE uses `parakeet-v3-onnx` since 2026-10-24 (fp32, the
+  multilingual nvidia/parakeet-tdt-0.6b-v3: 25 European languages, automatic
+  language detection — the profile `language` field is only a prompt for the
+  nemotron path and is ignored here). Until then DE used `nemotron35-int4`
+  (encoder MatMuls int4-quantized, convs fp16; built by
+  `bench\quantize_int4_stream.py nemotron` from `nemotron35-onnx`), still on
+  disk as fallback. Note parakeet int4 loses the tail of ~112 s continuous
+  audio (0.64 agreement), while fluid-speech-mini transcribes all 10
+  repetitions of that clip correctly — DE dictation clips (≤34 s tested) on
+  the fp32 graphs are exact. If the sibling repo moves, update `config.json`.
 - Runtime side: `packaging/becker-bin/` holds `becker.dll` (built by
   `engine-rs\build-msvc.bat` in the sibling repo; copy
   `engine-rs\target\release\becker.dll` there after rebuilding) plus

@@ -22,14 +22,20 @@
     "text for its 2-bit MatMulNBits graphs, so EN must stay on CPU. Release",
     "builds still ship the resolver engines (parakeet.cpp for EN). The former",
     "parakeet-v3-onnx override entry was removed with the switch - overrides",
-    "must target a current profile model (tests/test_packaging.py guards this):"
+    "must target a current profile model (tests/test_packaging.py guards this).",
+    "2026-10-24: the DE source profile switched to parakeet-v3-onnx on the CPU",
+    "EP (multilingual nvidia/parakeet-tdt-0.6b-v3; bench on the de parity",
+    "corpus ~4.2% WER vs nemotron35-int4's 7.4%, RTF 0.044 vs 0.071, 0 MB VRAM",
+    "instead of 644 MiB), so both profiles now hold zero VRAM. The nemotron",
+    "override is re-keyed to the new DE model dir; release builds keep the",
+    "resolver-shipped torch nemotron engine:"
   ],
   "C:\\Users\\Richard\\Documents\\Cursor_Projects\\llamacpp_becker_performant\\engine-rs\\models\\fluid-speech-mini-onnx": {
     "engine": "parakeet-gguf",
     "model": "mudler/parakeet-tdt-0.6b-v3-GGUF",
     "model_revision": "741158ae71e64ef5c89385862c18f777d07a97a1"
   },
-  "C:\\Users\\Richard\\Documents\\Cursor_Projects\\llamacpp_becker_performant\\engine-rs\\models\\nemotron35-int4": {
+  "C:\\Users\\Richard\\Documents\\Cursor_Projects\\llamacpp_becker_performant\\engine-rs\\models\\parakeet-v3-onnx": {
     "engine": "nemotron",
     "model": "nvidia/nemotron-3.5-asr-streaming-0.6b",
     "model_revision": "ea30d66debe3740a08b573244286791d423d6b3e"
